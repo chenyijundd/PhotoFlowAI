@@ -99,17 +99,95 @@ npm run build
 - [x] 全尺寸图片预览 — Fit 模式 / 100% 模式（Enter 切换）
 - [x] 星标评级 — 0★/1★ 切换，持久化到 SQLite
 - [x] 废片标记工作流 — X 标记/取消废片，废片筛选模式，当前图片失效自动切换
-- [x] 筛选工作流 — 全部照片 / 已选照片（star_rating==1）/ 模糊照片 / 废片切换浏览
+- [x] 筛选工作流 — 全部照片 / 已选照片（star_rating==1）/ 模糊照片 / 废片 / 重复照片切换浏览
+- [x] AI 模糊检测 — Laplacian Variance 算法，检测结果持久化，模糊筛选模式
+- [x] AI 重复照片检测 — Perceptual Hash (pHash) 算法，DUP 标签，Compare Mode 对比浏览
+- [x] Compare Mode — 重复组内双图对比，← → 切换对、Tab 切换激活侧、Space/X 标星/废片
+- [x] Cull Workflow — 自动推进、智能下一张、跳过废片、状态浮层、键盘安全
 
 ## 开发中 / 待实现
 
 - [ ] AI 闭眼检测
-- [ ] AI 重复照片检测
 - [ ] AI 综合评分（1-5星）
 - [ ] AI 选片报告
 - [ ] 精选照片导出
 - [ ] 手动微调
 - [ ] 多选 + 批量操作
+
+## Cull Workflow（专业快速筛片工作流）
+
+### 概述
+
+Cull Workflow 是面向职业摄影师的快速筛片工作流。借鉴 Photo Mechanic 等专业工具的交互模式，在浏览模式下通过键盘一键完成标星/废片操作后自动推进到下一张未处理照片，最小化摄影师的手部移动和决策时间。
+
+### 自动推进 (Auto Advance)
+
+| 操作 | 按键 | 行为 |
+|------|------|------|
+| 标星 | `Space` | 标记 1★ 后自动选中下一张未处理照片 |
+| 废片 | `X` | 标记 REJECT 后自动选中下一张未处理照片 |
+| 取消标星 | `Space`（已标星照片）| 取消星标，不自动推进 |
+| 取消废片 | `X`（已废片照片）| 取消废片标记，不自动推进 |
+
+### 智能下一张 (Smart Next Selection)
+
+`findNextUnprocessed()` 在 auto-advance 时优先选择"未处理"照片（star_rating==0 且 is_rejected==0），跳过已标星和已废片的照片。如果后方没有未处理照片，则选择下一张任意照片。
+
+实现位置: [useKeyboardNavigation.ts:61-77](frontend/src/hooks/useKeyboardNavigation.ts#L61-L77)
+
+### 跳过废片 (Skip Rejected)
+
+`←` `→` 导航时自动跳过 is_rejected==1 的照片，减少无效浏览。在"废片"筛选模式下不跳过（因为用户主动选择查看废片）。
+
+实现位置: [useKeyboardNavigation.ts:41-55](frontend/src/hooks/useKeyboardNavigation.ts#L41-L55)
+
+### 状态浮层 (Status Overlay)
+
+按 `Space` 或 `X` 时屏幕中央显示 500ms 短暂浮层：
+- 标星：金色 "★ PICKED"
+- 废片：红色 "✕ REJECTED"
+
+实现位置: [StatusOverlay.tsx](frontend/src/components/StatusOverlay.tsx)
+
+### Compare Mode 智能推进 (Compare Progression)
+
+在 Compare Mode 中：
+
+| 操作 | 行为 |
+|------|------|
+| 标星/废片激活侧照片 | 自动尝试推进到下一对（两张都非废片的 pair） |
+| 组内非废片照片 < 2 张 | 自动退出 Compare Mode |
+| 无有效 pair | 自动退出 Compare Mode |
+
+实现位置: [CompareModeContext.tsx:103-141](frontend/src/context/CompareModeContext.tsx#L103-L141)
+
+### 状态优先级 (State Priority)
+
+键盘事件处理优先级（从高到低）：
+
+1. **Compare Mode 键盘** — 进入 Compare Mode 后，BrowserPage 键盘事件完全禁用（`active: !isCompareMode`）
+2. **INPUT/TEXTAREA/SELECT** — 所有键盘 handler 执行前检查 `e.target.tagName`，输入框中不触发快捷键
+3. **BrowserPage 键盘** — 仅当 Compare Mode 未激活时生效
+
+### 筛选模式下的失效处理
+
+| 筛选模式 | 取消操作 | 行为 |
+|----------|---------|------|
+| 已选照片 (starred) | 取消标星 | 照片从列表消失，自动选下一张 |
+| 废片 (rejected) | 取消废片 | 照片从列表消失，自动选下一张 |
+| 全部照片 (all) | 标星/废片 | 照片保留在列表，自动推进 |
+
+实现位置: [BrowserPage.tsx:114-143](frontend/src/pages/BrowserPage.tsx#L114-L143) `getNextIdAfterAction()`
+
+### 已知限制 (Known Limitations)
+
+- 自动推进不支持撤销（单次操作不可逆，需手动回退后重新标记）
+- 智能下一张仅向前查找，不循环到列表开头
+- Compare Mode 仅支持同一 duplicate_group 内的照片对比
+- 同一张照片可同时处于"已选"和"废片"状态（当前阶段不互斥）
+- 无批量标星/废片操作（Shift/Ctrl 多选暂不支持）
+- 无真删文件功能（废片仅为标记，不删除原文件）
+- 无导出时过滤废片功能
 
 ## Reject 工作流
 

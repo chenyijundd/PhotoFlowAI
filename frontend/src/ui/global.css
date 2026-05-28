@@ -773,3 +773,45 @@ body {
   line-height: 1.4;
   white-space: nowrap;
 }
+
+/* ---- Compare Header Active Indicator ---- */
+
+.compare-header-active {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e94560;
+  background-color: rgba(233, 69, 96, 0.12);
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(233, 69, 96, 0.3);
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+
+/* ---- Status Overlay ---- */
+
+.status-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  font-weight: 700;
+  padding: 12px 32px;
+  border-radius: 8px;
+  z-index: 2000;
+  pointer-events: none;
+  letter-spacing: 2px;
+}
+
+.status-overlay--star {
+  color: #f0c040;
+  background-color: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(240, 192, 64, 0.4);
+}
+
+.status-overlay--reject {
+  color: #e94560;
+  background-color: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(233, 69, 96, 0.4);
+}

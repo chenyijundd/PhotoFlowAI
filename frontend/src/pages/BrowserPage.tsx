@@ -2,12 +2,14 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import ImageGrid from "../components/ImageGrid";
 import DetailPanel from "../components/DetailPanel";
 import ComparePage from "../components/ComparePage";
+import StatusOverlay from "../components/StatusOverlay";
+import type { StatusType } from "../components/StatusOverlay";
 import { usePhotos } from "../hooks/usePhotos";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useCompareMode } from "../context/CompareModeContext";
-import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
+import { useKeyboardNavigation, findNextUnprocessed } from "../hooks/useKeyboardNavigation";
 import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount } from "../api/photoApi";
-import type { ImportResponse, PhotoFilterMode, BlurDetectResponse } from "../../types";
+import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 
 const BrowserPage: React.FC = () => {
@@ -44,12 +46,24 @@ const BrowserPage: React.FC = () => {
   // Grid ref for auto-scroll
   const gridRef = useRef<GridHandle>(null);
 
+  // Status overlay state
+  const [statusOverlay, setStatusOverlay] = useState<StatusType>(null);
+
   // Compare mode
   const {
     isCompareMode,
     enterCompareMode,
     exitCompareMode,
+    setOnStatus,
   } = useCompareMode();
+
+  // Register status overlay callback with compare mode context
+  useEffect(() => {
+    setOnStatus((type: StatusType) => {
+      setStatusOverlay(type);
+      setTimeout(() => setStatusOverlay(null), 500);
+    });
+  }, [setOnStatus]);
 
   // Current selected photo object
   const selectedPhoto = useMemo(() => {
@@ -93,6 +107,41 @@ const BrowserPage: React.FC = () => {
     loadDuplicateCount();
   }, [loadStarredCount, loadRejectedCount, loadDuplicateCount]);
 
+  /**
+   * Compute the next photo to select after a star/reject action.
+   * Prioritizes unprocessed photos (star_rating==0 && is_rejected==0).
+   */
+  const getNextIdAfterAction = useCallback(
+    (imageId: string, newValue: number, isReject: boolean) => {
+      const currentIdx = photos.findIndex((p) => p.image_id === imageId);
+      if (currentIdx < 0) return null;
+
+      // In starred mode, if we're un-starring, the photo will disappear — handle it
+      if (filterMode === "starred" && !isReject && newValue === 0) {
+        if (currentIdx < photos.length - 1) return photos[currentIdx + 1].image_id;
+        if (currentIdx > 0) return photos[currentIdx - 1].image_id;
+        return null;
+      }
+
+      // In reject mode, if we're un-rejecting, the photo will disappear — handle it
+      if (filterMode === "rejected" && isReject && newValue === 0) {
+        if (currentIdx < photos.length - 1) return photos[currentIdx + 1].image_id;
+        if (currentIdx > 0) return photos[currentIdx - 1].image_id;
+        return null;
+      }
+
+      // Auto-advance: find next unprocessed photo
+      const nextIdx = findNextUnprocessed(photos, currentIdx);
+      if (nextIdx >= 0) {
+        return photos[nextIdx].image_id;
+      }
+
+      // If no unprocessed next, stay on current
+      return null;
+    },
+    [photos, filterMode],
+  );
+
   // Star toggle handler
   const handleToggleStar = useCallback(async (imageId: string, currentRating: number) => {
     const newRating = currentRating >= 1 ? 0 : 1;
@@ -101,28 +150,23 @@ const BrowserPage: React.FC = () => {
       setDetailRefreshKey((k) => k + 1);
       loadStarredCount();
 
-      // In starred mode, pre-compute next photo before refresh clears the list
-      let nextId: string | null = null;
-      if (filterMode === "starred" && newRating === 0) {
-        const currentIndex = photos.findIndex((p) => p.image_id === imageId);
-        if (currentIndex >= 0) {
-          if (currentIndex < photos.length - 1) {
-            nextId = photos[currentIndex + 1].image_id;
-          } else if (currentIndex > 0) {
-            nextId = photos[currentIndex - 1].image_id;
-          }
-        }
-      }
+      // Show status overlay
+      setStatusOverlay("star");
+      setTimeout(() => setStatusOverlay(null), 500);
+
+      // Pre-compute next photo before refresh
+      const nextId = getNextIdAfterAction(imageId, newRating, false);
 
       await refresh();
 
+      // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
       }
     } catch (err) {
       console.error("Failed to update star rating:", err);
     }
-  }, [refresh, filterMode, photos, selectPhoto, loadStarredCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadStarredCount]);
 
   // Reject toggle handler
   const handleToggleReject = useCallback(async (imageId: string, currentReject: number) => {
@@ -132,31 +176,25 @@ const BrowserPage: React.FC = () => {
       setDetailRefreshKey((k) => k + 1);
       loadRejectedCount();
 
-      // In reject mode, pre-compute next photo before refresh clears the list
-      let nextId: string | null = null;
-      if (filterMode === "rejected" && newReject === 0) {
-        const currentIndex = photos.findIndex((p) => p.image_id === imageId);
-        if (currentIndex >= 0) {
-          if (currentIndex < photos.length - 1) {
-            nextId = photos[currentIndex + 1].image_id;
-          } else if (currentIndex > 0) {
-            nextId = photos[currentIndex - 1].image_id;
-          }
-        }
-      }
+      // Show status overlay
+      setStatusOverlay("reject");
+      setTimeout(() => setStatusOverlay(null), 500);
+
+      // Pre-compute next photo before refresh
+      const nextId = getNextIdAfterAction(imageId, newReject, true);
 
       await refresh();
 
+      // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
       }
     } catch (err) {
       console.error("Failed to update reject status:", err);
     }
-  }, [refresh, filterMode, photos, selectPhoto, loadRejectedCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount]);
 
   // When filter switches, select first photo once data for the new mode arrives.
-  // Uses a pending ref to differentiate "initial load" (no select) from "filter switch" (select first).
   const pendingFilterRef = useRef<PhotoFilterMode | null>(null);
   const prevFilterRef = useRef<PhotoFilterMode>(filterMode);
   useEffect(() => {
@@ -184,6 +222,7 @@ const BrowserPage: React.FC = () => {
     onToggleReject: handleToggleReject,
     scrollToIndex,
     active: !isCompareMode,
+    filterMode,
   });
 
   // 'C' key — enter compare mode
@@ -255,7 +294,7 @@ const BrowserPage: React.FC = () => {
     setDetectDupMsg(null);
     try {
       const photoIds = photos.map((p) => p.image_id);
-      const result = await runDuplicateDetection(photoIds);
+      const result: DuplicateDetectResponse = await runDuplicateDetection(photoIds);
       setDetectDupMsg(`重复检测完成：共 ${result.duplicate_groups} 组，${result.duplicates} 张重复照片`);
       loadDuplicateCount();
       refresh();
@@ -286,7 +325,7 @@ const BrowserPage: React.FC = () => {
     }
   }, [photos, refresh]);
 
-  // Listen for menu "导入照片" command (MUST be before early returns to maintain hook order)
+  // Listen for menu "导入照片" command
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onMenuImport(() => {
       handleImport();
@@ -327,6 +366,8 @@ const BrowserPage: React.FC = () => {
 
   return (
     <div className="browser-page">
+      <StatusOverlay type={statusOverlay} />
+
       <header className="browser-header">
         <h1 className="browser-title">PhotoFlow AI</h1>
         <div className="browser-header-center">

@@ -5,13 +5,21 @@
  * Handles all keyboard shortcuts for compare workflow:
  *   Left/Right  navigate within duplicate group
  *   Tab         switch active side
- *   Space       toggle star on active photo
- *   X           toggle reject on active photo
+ *   Space       toggle star on active photo (auto-advance)
+ *   X           toggle reject on active photo (auto-advance)
  *   ESC         exit compare mode
+ *
+ * Cull Workflow features:
+ *   - ACTIVE: LEFT / RIGHT indicator
+ *   - Smart progression after star/reject
+ *   - Auto cleanup when group becomes invalid
+ *   - Keyboard priority over browse mode
  */
 
 import React, { useEffect, useCallback } from "react";
 import ComparePreview from "./ComparePreview";
+import StatusOverlay from "./StatusOverlay";
+import type { StatusType } from "../context/CompareModeContext";
 import { useCompareMode } from "../context/CompareModeContext";
 
 const ComparePage: React.FC = () => {
@@ -30,7 +38,19 @@ const ComparePage: React.FC = () => {
     toggleStarActive,
     toggleRejectActive,
     exitCompareMode,
+    setOnStatus,
   } = useCompareMode();
+
+  // State for status overlay in compare mode
+  const [statusType, setStatusType] = React.useState<StatusType>(null);
+
+  // Register the status callback with CompareModeContext
+  useEffect(() => {
+    setOnStatus((type: StatusType) => {
+      setStatusType(type);
+      setTimeout(() => setStatusType(null), 500);
+    });
+  }, [setOnStatus]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -112,12 +132,17 @@ const ComparePage: React.FC = () => {
 
   return (
     <div className="compare-page">
+      <StatusOverlay type={statusType} />
+
       {/* Header */}
       <div className="compare-header">
         <span className="compare-header-label">COMPARE MODE</span>
         <span className="compare-header-group">{groupId || ""}</span>
         <span className="compare-header-position">
           {position} / {totalInGroup}
+        </span>
+        <span className="compare-header-active">
+          ACTIVE: {activeSide === "left" ? "LEFT" : "RIGHT"}
         </span>
         <span className="compare-header-hint">
           ← → 切换 · Tab切换 · Space标星 · X废片 · ESC退出

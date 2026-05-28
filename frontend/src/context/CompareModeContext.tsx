@@ -2,12 +2,20 @@
  * PhotoFlow AI - Compare Mode Context
  *
  * Manages the dual-photo compare workflow for duplicate groups.
- * Photographers can compare photos side-by-side, star, and reject.
+ *
+ * Cull Workflow features:
+ *   - Smart progression: after starring or rejecting the active photo,
+ *     auto-advance to the next pair in the duplicate group.
+ *   - Auto exit: when the group has only 1 non-rejected photo left,
+ *     automatically exit compare mode.
+ *   - Compare keyboard takes priority over browse keyboard.
  */
 
 import React, { createContext, useContext, useState, useCallback } from "react";
 import type { PhotoInfo } from "../../types";
 import { fetchPhotosByGroup, updateStarRating, updateRejectStatus } from "../api/photoApi";
+
+export type StatusType = "star" | "reject" | null;
 
 interface CompareModeContextType {
   isCompareMode: boolean;
@@ -28,6 +36,8 @@ interface CompareModeContextType {
   switchActiveSide: () => void;
   toggleStarActive: () => Promise<void>;
   toggleRejectActive: () => Promise<void>;
+  onStatus: (type: StatusType) => void;
+  setOnStatus: (fn: (type: StatusType) => void) => void;
 }
 
 const CompareModeContext = createContext<CompareModeContextType | null>(null);
@@ -42,6 +52,16 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [groupId, setGroupId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [statusFn, setStatusFn] = useState<((type: StatusType) => void) | null>(null);
+
+  const setOnStatus = useCallback((fn: (type: StatusType) => void) => {
+    setStatusFn(() => fn);
+  }, []);
+
+  const onStatus = useCallback((type: StatusType) => {
+    statusFn?.(type);
+  }, [statusFn]);
 
   const updatePhotoInState = useCallback(
     (imageId: string, updates: Partial<PhotoInfo>) => {
@@ -64,6 +84,62 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRightPhoto(photos.length > idx + 1 ? photos[idx + 1] : null);
   }, []);
 
+  const exitCompareMode = useCallback(() => {
+    setIsCompareMode(false);
+    setLeftPhoto(null);
+    setRightPhoto(null);
+    setGroupPhotos([]);
+    setCurrentIndex(0);
+    setGroupId(null);
+    setActiveSide("left");
+    setError(null);
+  }, []);
+
+  /**
+   * After a star or reject action, check if we should advance the pair
+   * or auto-exit. Receives the fully-updated photos array (already
+   * reflecting the star/reject change).
+   */
+  const advanceAfterAction = useCallback(
+    (photos: PhotoInfo[], currentIdx: number) => {
+      // Count non-rejected photos
+      const nonRejected = photos.filter((p) => (p.is_rejected ?? 0) === 0);
+      if (nonRejected.length < 2) {
+        exitCompareMode();
+        return;
+      }
+
+      // Try advancing to next pair
+      const newIdx = Math.min(photos.length - 2, currentIdx + 1);
+
+      // Check if the new pair has both photos non-rejected
+      if (newIdx !== currentIdx && newIdx >= 0) {
+        const l = photos[newIdx];
+        const r = newIdx + 1 < photos.length ? photos[newIdx + 1] : null;
+        if (l && (l.is_rejected ?? 0) === 0 && r && (r.is_rejected ?? 0) === 0) {
+          setPair(photos, newIdx);
+          setActiveSide("left");
+          return;
+        }
+      }
+
+      // Fallback: find any valid pair with both non-rejected
+      for (let i = 0; i <= photos.length - 2; i++) {
+        const l = photos[i];
+        const r = photos[i + 1];
+        if (l && (l.is_rejected ?? 0) === 0 && r && (r.is_rejected ?? 0) === 0) {
+          setPair(photos, i);
+          setActiveSide("left");
+          return;
+        }
+      }
+
+      // No valid pair found — auto exit
+      exitCompareMode();
+    },
+    [setPair, exitCompareMode],
+  );
+
   const enterCompareMode = useCallback(
     async (photoId: string, gId: string) => {
       setIsCompareMode(true);
@@ -80,7 +156,6 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
         let idx = photos.findIndex((p) => p.image_id === photoId);
         if (idx < 0) idx = 0;
-        // Ensure there's always a right photo if possible
         if (idx >= photos.length - 1 && photos.length >= 2) {
           idx = photos.length - 2;
         }
@@ -100,17 +175,6 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     },
     [setPair],
   );
-
-  const exitCompareMode = useCallback(() => {
-    setIsCompareMode(false);
-    setLeftPhoto(null);
-    setRightPhoto(null);
-    setGroupPhotos([]);
-    setCurrentIndex(0);
-    setGroupId(null);
-    setActiveSide("left");
-    setError(null);
-  }, []);
 
   const navigateLeft = useCallback(() => {
     const newIdx = Math.max(0, currentIndex - 1);
@@ -136,11 +200,23 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const newRating = (target.star_rating ?? 0) >= 1 ? 0 : 1;
     try {
       await updateStarRating(target.image_id, newRating);
+
+      // Compute the updated photos array for advance logic
+      const updatedPhotos = groupPhotos.map((p) =>
+        p.image_id === target.image_id ? { ...p, star_rating: newRating } : p,
+      );
+
       updatePhotoInState(target.image_id, { star_rating: newRating });
+      onStatus("star");
+
+      // Auto-advance when starring (not un-starring)
+      if (newRating >= 1) {
+        advanceAfterAction(updatedPhotos, currentIndex);
+      }
     } catch {
-      // silently fail — don't crash compare mode
+      // silently fail
     }
-  }, [activeSide, leftPhoto, rightPhoto, updatePhotoInState]);
+  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus]);
 
   const toggleRejectActive = useCallback(async () => {
     const target = activeSide === "left" ? leftPhoto : rightPhoto;
@@ -148,11 +224,23 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const newReject = (target.is_rejected ?? 0) >= 1 ? 0 : 1;
     try {
       await updateRejectStatus(target.image_id, newReject);
+
+      // Compute the updated photos array for advance logic
+      const updatedPhotos = groupPhotos.map((p) =>
+        p.image_id === target.image_id ? { ...p, is_rejected: newReject } : p,
+      );
+
       updatePhotoInState(target.image_id, { is_rejected: newReject });
+      onStatus("reject");
+
+      // Auto-advance when rejecting (not un-rejecting)
+      if (newReject >= 1) {
+        advanceAfterAction(updatedPhotos, currentIndex);
+      }
     } catch {
       // silently fail
     }
-  }, [activeSide, leftPhoto, rightPhoto, updatePhotoInState]);
+  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus]);
 
   const totalInGroup = groupPhotos.length;
 
@@ -176,6 +264,8 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         switchActiveSide,
         toggleStarActive,
         toggleRejectActive,
+        onStatus,
+        setOnStatus,
       }}
     >
       {children}
