@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/release/
+
+# Database
+database/photoflow.db
+database/*.db
+
+# Cache & Temp
+cache/*
+logs/*
+temp/*
+!cache/.gitkeep
+!logs/.gitkeep
+!temp/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
