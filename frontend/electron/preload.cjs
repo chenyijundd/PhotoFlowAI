@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   generateSuggestions: (photoIds) => ipcRenderer.invoke("generate-suggestions", photoIds),
   getSuggestedPhotos: (limit, offset) => ipcRenderer.invoke("get-suggested-photos", limit, offset),
   getSuggestedCount: () => ipcRenderer.invoke("get-suggested-count"),
+  exportStart: (targetFolder, mode, photoIds) => ipcRenderer.invoke("export-start", targetFolder, mode, photoIds),
+  exportProgress: (exportId) => ipcRenderer.invoke("export-progress", exportId),
+  exportCancel: (exportId) => ipcRenderer.invoke("export-cancel", exportId),
+  exportSummary: (exportId) => ipcRenderer.invoke("export-summary", exportId),
   onMenuImport: (callback) => {
     const handler = () => callback();
     ipcRenderer.on("menu-import", handler);

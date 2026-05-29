@@ -12,6 +12,7 @@ from .photo_service import router as photo_router
 from .detail_service import router as detail_router
 from .ai_service import router as ai_router
 from backend.importer.import_service import router as import_router
+from .export_service import router as export_router
 from database.connection import init_database
 from backend.logging_config import setup_all_logging
 
@@ -35,6 +36,7 @@ app.include_router(photo_router)
 app.include_router(detail_router)
 app.include_router(ai_router)
 app.include_router(import_router)
+app.include_router(export_router)
 
 
 @app.get("/api/health")

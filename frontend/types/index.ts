@@ -108,6 +108,38 @@ export interface GetPhotosByGroupResponse {
 /** Filter mode for the photo grid. */
 export type PhotoFilterMode = "all" | "starred" | "blur" | "rejected" | "duplicate" | "suggested";
 
+/** Export mode. */
+export type ExportMode = "picked" | "rejected" | "current_filter" | "compare";
+
+/** Response from POST /api/export/start. */
+export interface ExportStartResponse {
+  export_id: string;
+}
+
+/** Response from GET /api/export/progress/{export_id}. */
+export interface ExportProgressResponse {
+  export_id: string;
+  status: "running" | "completed" | "cancelled" | "error";
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  current_file: string;
+  duration_seconds: number;
+}
+
+/** Response from GET /api/export/summary/{export_id}. */
+export interface ExportSummaryResponse {
+  export_id: string;
+  status: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  duration_seconds: number;
+  errors: string[];
+}
+
 /** Response from POST /api/ai/generate-suggestions. */
 export interface GenerateSuggestionsResponse {
   processed: number;
@@ -138,6 +170,10 @@ export interface ElectronAPI {
   generateSuggestions: (photoIds?: string[]) => Promise<GenerateSuggestionsResponse>;
   getSuggestedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getSuggestedCount: () => Promise<{ count: number }>;
+  exportStart: (targetFolder: string, mode: string, photoIds?: string[]) => Promise<ExportStartResponse>;
+  exportProgress: (exportId: string) => Promise<ExportProgressResponse>;
+  exportCancel: (exportId: string) => Promise<{ status: string }>;
+  exportSummary: (exportId: string) => Promise<ExportSummaryResponse>;
 }
 
 /** Augment the global Window interface. */

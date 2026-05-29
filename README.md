@@ -107,6 +107,7 @@ npm run build
 - [x] Cull Workflow — 自动推进、智能下一张、跳过废片、状态浮层、键盘安全
 - [x] 性能稳定性改造 (v1) — 详见下方性能章节
 - [x] AI 建议系统 (v1) — 规则驱动的辅助选片建议，AI 只建议不决策
+- [x] 职业导出工作流 (v1) — 流式复制导出，协作取消，重名安全
 
 ## 开发中 / 待实现
 
@@ -175,6 +176,59 @@ npm run build
 - 增量更新（非全量重新生成）
 - 用户反馈学习
 - 更多建议类型（闭眼、表情、构图）
+
+---
+
+## 职业导出工作流 (Export Workflow)
+
+### 导出模式
+
+| 模式 | 规则 | 输出目录 |
+|------|------|---------|
+| **Picked** | `star_rating == 1` 且 `is_rejected == 0` | `{target}/Picked/` |
+| **Rejected** | `is_rejected == 1` | `{target}/Rejected/` |
+| **Current Filter** | 当前筛选模式中的所有照片 | `{target}/CurrentFilter/` |
+| **Compare** | 当前对比组全部照片 | `{target}/CompareExport/` |
+
+### 键盘工作流
+
+| 按键 | 行为 |
+|------|------|
+| `E` | 打开导出对话框（选择模式 + 目标文件夹 → 开始导出） |
+| Compare Mode 中 `E` | 打开导出对话框（预选 Compare 模式 + 当前组照片） |
+
+### 取消架构
+
+协作式取消（cooperative cancel）：
+1. `POST /api/export/start` → 返回 `export_id`，后台逐文件处理
+2. 前端每 300ms 轮询 `GET /api/export/progress/{id}`
+3. 用户点击取消 → `POST /api/export/cancel/{id}` 设置标志
+4. 后台在文件间检查标志 → 立即停止
+
+### 重名安全
+
+同名文件自动追加序号：
+```
+IMG_0001.JPG → IMG_0001.JPG（不存在）
+IMG_0001.JPG → IMG_0001_1.JPG（已存在）
+IMG_0001.JPG → IMG_0001_2.JPG（_1 已存在）
+```
+
+### 导出日志
+
+记录到 `logs/export.log`（RotatingFileHandler，10MB × 5）：
+- 导出开始 / 取消 / 完成
+- 成功 / 失败 / 跳过数量 + 耗时
+- 单文件错误详情
+
+### 未来 RAW 导出路线图
+
+- 导出格式转换（JPEG 质量、尺寸）
+- 自定义文件名模板
+- 水印叠加
+- RAW 文件处理
+- Lightroom 目录同步
+- 导出历史管理
 
 ---
 

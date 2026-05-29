@@ -21,9 +21,10 @@
  *   - Guards against rapid key presses / stale photo states
  */
 
-import React, { useEffect, useCallback, useRef } from "react";
+import React, { useEffect, useCallback, useRef, useState } from "react";
 import ComparePreview from "./ComparePreview";
 import StatusOverlay from "./StatusOverlay";
+import ExportDialog from "./ExportDialog";
 import type { StatusType } from "../context/CompareModeContext";
 import { useCompareMode } from "../context/CompareModeContext";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
@@ -59,6 +60,9 @@ const ComparePage: React.FC = () => {
 
   // State for status overlay in compare mode
   const [statusType, setStatusType] = React.useState<StatusType>(null);
+
+  // Export dialog state for compare mode
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   // Guard against rapid key presses — track if an action is in flight
   const actionInFlightRef = useRef(false);
@@ -156,6 +160,12 @@ const ComparePage: React.FC = () => {
           exitCompareMode();
           return true;
         }
+        case "e":
+        case "E": {
+          e.preventDefault();
+          setShowExportDialog(true);
+          return true;
+        }
       }
       return false;
     },
@@ -236,6 +246,16 @@ const ComparePage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Export Dialog for compare mode */}
+      {showExportDialog && (
+        <ExportDialog
+          defaultMode="compare"
+          photoIds={groupPhotos.map((p) => p.image_id)}
+          estimatedCount={groupPhotos.length}
+          onClose={() => setShowExportDialog(false)}
+        />
+      )}
     </div>
   );
 };

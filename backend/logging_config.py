@@ -90,9 +90,21 @@ def setup_app_logging() -> logging.Logger:
     return logger
 
 
+def setup_export_logging() -> logging.Logger:
+    """Set up rotating log for export operations."""
+    logger = logging.getLogger("export")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("export.log")
+    logger.addHandler(handler)
+    return logger
+
+
 def setup_all_logging():
     """Initialize all rotating log handlers at once. Call at startup."""
     setup_importer_logging()
     setup_blur_logging()
     setup_duplicate_logging()
     setup_app_logging()
+    setup_export_logging()

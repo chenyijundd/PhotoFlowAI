@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurDetectResponse, RejectResponse, RejectedCountResponse, DuplicateDetectResponse, DuplicateCountResponse, GetPhotosByGroupResponse, GenerateSuggestionsResponse } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurDetectResponse, RejectResponse, RejectedCountResponse, DuplicateDetectResponse, DuplicateCountResponse, GetPhotosByGroupResponse, GenerateSuggestionsResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -286,5 +286,57 @@ export async function fetchSuggestedCount(): Promise<{ count: number }> {
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}`);
   }
+  return res.json();
+}
+
+/** Start an export. Returns export_id for polling. */
+export async function exportStart(
+  targetFolder: string,
+  mode: string,
+  photoIds?: string[]
+): Promise<ExportStartResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.exportStart(targetFolder, mode, photoIds);
+  }
+  const url = `${BACKEND_URL}/api/export/start`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_folder: targetFolder, mode, photo_ids: photoIds || null }),
+  });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Poll export progress. */
+export async function exportProgress(exportId: string): Promise<ExportProgressResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.exportProgress(exportId);
+  }
+  const url = `${BACKEND_URL}/api/export/progress/${exportId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Cancel a running export. */
+export async function exportCancel(exportId: string): Promise<{ status: string }> {
+  if (window.electronAPI) {
+    return window.electronAPI.exportCancel(exportId);
+  }
+  const url = `${BACKEND_URL}/api/export/cancel/${exportId}`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Get final export summary. */
+export async function exportSummary(exportId: string): Promise<ExportSummaryResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.exportSummary(exportId);
+  }
+  const url = `${BACKEND_URL}/api/export/summary/${exportId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }

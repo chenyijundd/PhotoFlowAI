@@ -12,10 +12,17 @@ import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount, generateSuggestions, fetchSuggestedCount } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse, GenerateSuggestionsResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
+import ExportDialog from "../components/ExportDialog";
+import type { ExportMode } from "../../types";
 
 const BrowserPage: React.FC = () => {
   const [filterMode, setFilterMode] = useState<PhotoFilterMode>("all");
   const [starredCount, setStarredCount] = useState(0);
+
+  // Export dialog state
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode>("picked");
+  const [exportPhotoIds, setExportPhotoIds] = useState<string[] | undefined>(undefined);
   const [rejectedCount, setRejectedCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [suggestedCount, setSuggestedCount] = useState(0);
@@ -422,6 +429,37 @@ const BrowserPage: React.FC = () => {
 
   useKeyboardHandler("app-accept-suggestion", handleAKey, KEY_PRIORITY.APP, !isCompareMode);
 
+  // 'E' key — open export dialog
+  const handleEKey = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (e.key === "e" || e.key === "E") {
+        if (isCompareModeRef.current) return false; // Compare mode handles its own E
+        e.preventDefault();
+        // Determine export mode based on current filter
+        const mode: ExportMode =
+          filterMode === "starred" ? "picked" :
+          filterMode === "rejected" ? "rejected" :
+          "current_filter";
+        setExportMode(mode);
+        setExportPhotoIds(mode === "current_filter" ? photos.map(p => p.image_id) : undefined);
+        setShowExportDialog(true);
+        return true;
+      }
+      return false;
+    },
+    [filterMode, photos],
+  );
+
+  useKeyboardHandler("app-export", handleEKey, KEY_PRIORITY.APP, !showExportDialog);
+
+  // Export estimated count
+  const exportEstimatedCount =
+    exportMode === "picked" ? starredCount :
+    exportMode === "rejected" ? rejectedCount :
+    photos.length;
+
   // Listen for menu "导入照片" command
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onMenuImport(() => {
@@ -619,6 +657,16 @@ const BrowserPage: React.FC = () => {
         <div className="import-status">
           {detectDupMsg || detectMsg || importMsg}
         </div>
+      )}
+
+      {/* Export Dialog */}
+      {showExportDialog && (
+        <ExportDialog
+          defaultMode={exportMode}
+          photoIds={exportPhotoIds}
+          estimatedCount={exportEstimatedCount}
+          onClose={() => setShowExportDialog(false)}
+        />
       )}
     </div>
   );

@@ -271,6 +271,45 @@ ipcMain.handle("get-suggested-count", async () => {
   return response.json();
 });
 
+/** Start an export to a target folder. */
+ipcMain.handle("export-start", async (_event, targetFolder, mode, photoIds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/export/start`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_folder: targetFolder, mode, photo_ids: photoIds || null }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Poll export progress. */
+ipcMain.handle("export-progress", async (_event, exportId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/export/progress/${exportId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Cancel a running export. */
+ipcMain.handle("export-cancel", async (_event, exportId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/export/cancel/${exportId}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Get export summary. */
+ipcMain.handle("export-summary", async (_event, exportId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/export/summary/${exportId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
 /** Send a directory path to the backend for the full import workflow. */
 ipcMain.handle("import-photos", async (_event, dirPath) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/import`;
