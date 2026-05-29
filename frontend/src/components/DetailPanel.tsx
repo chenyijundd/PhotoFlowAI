@@ -135,6 +135,14 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode, refreshKey
             <span className="detail-value">{detail.duplicate_group}</span>
           </div>
         )}
+        {detail?.ai_suggestion && (
+          <div className="detail-field">
+            <span className="detail-label">AI 建议</span>
+            <span className="detail-value">
+              {detail.ai_suggestion === "POSSIBLE_BEST" ? "⭐ 最佳照片" : detail.ai_suggestion === "POSSIBLE_BLUR" ? "🔍 可能模糊" : "🔗 可能重复"}
+            </span>
+          </div>
+        )}
         {detail?.blur_score != null && (
           <div className="detail-field">
             <span className="detail-label">模糊检测</span>

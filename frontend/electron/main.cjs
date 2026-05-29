@@ -236,6 +236,41 @@ ipcMain.handle("get-photos-by-group", async (_event, groupId) => {
   return response.json();
 });
 
+/** Generate AI suggestions for all (or selected) photos. */
+ipcMain.handle("generate-suggestions", async (_event, photoIds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/generate-suggestions`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds || null }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Fetch photos with AI suggestions. */
+ipcMain.handle("get-suggested-photos", async (_event, limit = 100, offset = 0) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/suggested?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Fetch count of photos with AI suggestions. */
+ipcMain.handle("get-suggested-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/suggested/count`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
 /** Send a directory path to the backend for the full import workflow. */
 ipcMain.handle("import-photos", async (_event, dirPath) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/import`;

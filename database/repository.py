@@ -323,6 +323,28 @@ class PhotoRepository:
             ).fetchone()
             return row[0] if row else 0
 
+    # ---- AI Suggestion methods ----
+
+    def get_suggested_photos(self) -> List[PhotoRecord]:
+        """Retrieve all photos with ai_suggestion IS NOT NULL, ordered by file_name."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE ai_suggestion IS NOT NULL ORDER BY file_name"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_suggested_count(self) -> int:
+        """Return the count of photos with ai_suggestion IS NOT NULL."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE ai_suggestion IS NOT NULL"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def update_suggestion(self, image_id: str, suggestion: Optional[str]) -> bool:
+        """Update the ai_suggestion field for a photo. Pass None to clear."""
+        return self._update_fields(image_id, ai_suggestion=suggestion)
+
     def _update_fields(self, image_id: str, **fields) -> bool:
         """Generic field updater. Builds SET clause from keyword arguments.
 

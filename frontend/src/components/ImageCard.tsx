@@ -105,6 +105,11 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
               {photo.is_duplicate === 1 && (
                 <div className="photo-card-dup-badge">DUP</div>
               )}
+              {photo.ai_suggestion && (
+                <div className="photo-card-ai-badge">
+                  AI: {photo.ai_suggestion === "POSSIBLE_BEST" ? "BEST" : photo.ai_suggestion === "POSSIBLE_BLUR" ? "BLUR" : "DUP"}
+                </div>
+              )}
             </>
           ) : (
             <div className="photo-card-placeholder">
@@ -138,6 +143,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
       prevPhoto.is_blur === nextPhoto.is_blur &&
       prevPhoto.is_duplicate === nextPhoto.is_duplicate &&
       prevPhoto.duplicate_group === nextPhoto.duplicate_group &&
+      prevPhoto.ai_suggestion === nextPhoto.ai_suggestion &&
       prevProps.style === nextProps.style
     );
   },

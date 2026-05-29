@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurDetectResponse, RejectResponse, RejectedCountResponse, DuplicateDetectResponse, DuplicateCountResponse, GetPhotosByGroupResponse } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurDetectResponse, RejectResponse, RejectedCountResponse, DuplicateDetectResponse, DuplicateCountResponse, GetPhotosByGroupResponse, GenerateSuggestionsResponse } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -234,6 +234,54 @@ export async function fetchPhotosByGroup(groupId: string): Promise<GetPhotosByGr
     return window.electronAPI.getPhotosByGroup(groupId);
   }
   const url = `${BACKEND_URL}/api/photos/duplicate/group/${encodeURIComponent(groupId)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Generate AI suggestions for all photos (or a subset). */
+export async function generateSuggestions(
+  photoIds?: string[]
+): Promise<GenerateSuggestionsResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.generateSuggestions(photoIds);
+  }
+  const url = `${BACKEND_URL}/api/ai/generate-suggestions`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds || null }),
+  });
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Fetch photos with AI suggestions with pagination. */
+export async function fetchSuggestedPhotos(
+  limit: number = 100,
+  offset: number = 0
+): Promise<GetPhotosResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.getSuggestedPhotos(limit, offset);
+  }
+  const url = `${BACKEND_URL}/api/photos/suggested?limit=${limit}&offset=${offset}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Fetch the count of photos with AI suggestions. */
+export async function fetchSuggestedCount(): Promise<{ count: number }> {
+  if (window.electronAPI) {
+    return window.electronAPI.getSuggestedCount();
+  }
+  const url = `${BACKEND_URL}/api/photos/suggested/count`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}`);

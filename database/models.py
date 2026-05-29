@@ -28,6 +28,7 @@ PHOTO_COLUMNS = (
     "is_duplicate",
     "is_rejected",
     "star_rating",
+    "ai_suggestion",
     "created_at",
     "updated_at",
 )
@@ -53,6 +54,7 @@ class PhotoRecord:
     is_duplicate: int = 0
     is_rejected: int = 0
     star_rating: Optional[int] = None
+    ai_suggestion: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

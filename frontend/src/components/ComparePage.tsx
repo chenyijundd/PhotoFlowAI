@@ -209,6 +209,9 @@ const ComparePage: React.FC = () => {
         <span className="compare-header-active">
           ACTIVE: {activeSide === "left" ? "LEFT" : "RIGHT"}
         </span>
+        {(leftPhoto?.ai_suggestion === "POSSIBLE_BEST" || rightPhoto?.ai_suggestion === "POSSIBLE_BEST") && (
+          <span className="compare-header-ai">AI Suggested</span>
+        )}
         <span className="compare-header-hint">
           ← → 切换 · Tab切换 · Space标星 · X废片 · ESC退出
         </span>

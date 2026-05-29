@@ -9,8 +9,8 @@ import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useCompareMode } from "../context/CompareModeContext";
 import { useKeyboardNavigation, findNextUnprocessed } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
-import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount } from "../api/photoApi";
-import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse } from "../../types";
+import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount, generateSuggestions, fetchSuggestedCount } from "../api/photoApi";
+import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse, GenerateSuggestionsResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 
 const BrowserPage: React.FC = () => {
@@ -18,6 +18,7 @@ const BrowserPage: React.FC = () => {
   const [starredCount, setStarredCount] = useState(0);
   const [rejectedCount, setRejectedCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
+  const [suggestedCount, setSuggestedCount] = useState(0);
 
   const {
     photos,
@@ -102,11 +103,22 @@ const BrowserPage: React.FC = () => {
     }
   }, []);
 
+  // Fetch suggested count
+  const loadSuggestedCount = useCallback(async () => {
+    try {
+      const res = await fetchSuggestedCount();
+      setSuggestedCount(res.count);
+    } catch {
+      // silently ignore
+    }
+  }, []);
+
   useEffect(() => {
     loadStarredCount();
     loadRejectedCount();
     loadDuplicateCount();
-  }, [loadStarredCount, loadRejectedCount, loadDuplicateCount]);
+    loadSuggestedCount();
+  }, [loadStarredCount, loadRejectedCount, loadDuplicateCount, loadSuggestedCount]);
 
   /**
    * Compute the next photo to select after a star/reject action.
@@ -160,6 +172,9 @@ const BrowserPage: React.FC = () => {
 
       await refresh();
 
+      // Suggestion safety: regenerate after manual action (fire-and-forget)
+      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
+
       // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
@@ -167,7 +182,7 @@ const BrowserPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to update star rating:", err);
     }
-  }, [refresh, getNextIdAfterAction, selectPhoto, loadStarredCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadStarredCount, loadSuggestedCount]);
 
   // Reject toggle handler
   const handleToggleReject = useCallback(async (imageId: string, currentReject: number) => {
@@ -186,6 +201,9 @@ const BrowserPage: React.FC = () => {
 
       await refresh();
 
+      // Suggestion safety: regenerate after manual action (fire-and-forget)
+      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
+
       // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
@@ -193,7 +211,7 @@ const BrowserPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to update reject status:", err);
     }
-  }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount, loadSuggestedCount]);
 
   // When filter switches, select first photo once data for the new mode arrives.
   const pendingFilterRef = useRef<PhotoFilterMode | null>(null);
@@ -263,6 +281,7 @@ const BrowserPage: React.FC = () => {
       loadStarredCount();
       loadRejectedCount();
       loadDuplicateCount();
+      loadSuggestedCount();
     }
     prevCompareRef.current = isCompareMode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,6 +326,8 @@ const BrowserPage: React.FC = () => {
       const result: DuplicateDetectResponse = await runDuplicateDetection(photoIds);
       setDetectDupMsg(`重复检测完成：共 ${result.duplicate_groups} 组，${result.duplicates} 张重复照片`);
       loadDuplicateCount();
+      // Suggestion safety: regenerate after duplicate detection
+      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
       refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "重复检测失败";
@@ -314,7 +335,7 @@ const BrowserPage: React.FC = () => {
     } finally {
       setDetectingDup(false);
     }
-  }, [photos, refresh, loadDuplicateCount]);
+  }, [photos, refresh, loadDuplicateCount, loadSuggestedCount]);
 
   // Blur detection handler
   const handleBlurDetect = useCallback(async () => {
@@ -326,6 +347,8 @@ const BrowserPage: React.FC = () => {
       const photoIds = photos.map((p) => p.image_id);
       const result: BlurDetectResponse = await runBlurDetection(photoIds);
       setDetectMsg(`检测完成：已处理 ${result.processed} 张，模糊 ${result.blurred} 张`);
+      // Suggestion safety: regenerate after blur detection
+      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
       refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "模糊检测失败";
@@ -334,6 +357,85 @@ const BrowserPage: React.FC = () => {
       setDetecting(false);
     }
   }, [photos, refresh]);
+
+  // AI Suggestions generation handler
+  const [generating, setGenerating] = useState(false);
+  const handleGenerateSuggestions = useCallback(async () => {
+    if (photos.length === 0) return;
+    setGenerating(true);
+    setDetectMsg(null);
+    try {
+      const photoIds = photos.map((p) => p.image_id);
+      const result: GenerateSuggestionsResponse = await generateSuggestions(photoIds);
+      setDetectMsg(`AI 建议生成完成：${result.suggestions_generated} 条建议`);
+      loadSuggestedCount();
+      refresh();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "AI 建议生成失败";
+      setDetectMsg(msg);
+    } finally {
+      setGenerating(false);
+    }
+  }, [photos, refresh, loadSuggestedCount]);
+
+  // 'A' key — accept AI suggestion for current photo
+  const acceptSuggestion = useCallback(async () => {
+    const photo = selectedPhotoRef.current;
+    if (!photo?.ai_suggestion) return;
+
+    const suggestion = photo.ai_suggestion;
+    try {
+      if (suggestion === "POSSIBLE_BEST") {
+        // Accept best → star it
+        const currentStar = photo.star_rating ?? 0;
+        if (currentStar < 1) {
+          await updateStarRating(photo.image_id, 1);
+          setDetailRefreshKey((k) => k + 1);
+          loadStarredCount();
+        }
+      } else if (suggestion === "POSSIBLE_BLUR") {
+        // Accept blur → reject it
+        const currentReject = photo.is_rejected ?? 0;
+        if (currentReject < 1) {
+          await updateRejectStatus(photo.image_id, 1);
+          setDetailRefreshKey((k) => k + 1);
+          loadRejectedCount();
+        }
+      }
+      // POSSIBLE_DUPLICATE: no action (informational only)
+
+      // Show AI ACCEPTED overlay
+      setStatusOverlay("ai_accept");
+      setTimeout(() => setStatusOverlay(null), 500);
+
+      // Regenerate suggestions (safety: invalidates stale suggestions)
+      await generateSuggestions();
+      loadSuggestedCount();
+      await refresh();
+    } catch (err) {
+      console.error("Failed to accept AI suggestion:", err);
+    }
+  }, [loadStarredCount, loadRejectedCount, loadSuggestedCount, refresh]);
+
+  // 'A' key handler via centralized keyboard manager
+  const handleAKey = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (e.key === "a" || e.key === "A") {
+        const photo = selectedPhotoRef.current;
+        if (photo?.ai_suggestion && !isCompareModeRef.current) {
+          e.preventDefault();
+          acceptSuggestion();
+          return true;
+        }
+      }
+      return false;
+    },
+    [acceptSuggestion],
+  );
+
+  useKeyboardHandler("app-accept-suggestion", handleAKey, KEY_PRIORITY.APP, !isCompareMode);
 
   // Listen for menu "导入照片" command
   useEffect(() => {
@@ -412,6 +514,12 @@ const BrowserPage: React.FC = () => {
             >
               重复照片
             </button>
+            <button
+              className={`filter-btn${filterMode === "suggested" ? " filter-btn--active" : ""}`}
+              onClick={() => setFilterMode("suggested")}
+            >
+              AI Suggestions
+            </button>
             <span className="filter-starred-count">
               已选：{starredCount}
             </span>
@@ -420,6 +528,9 @@ const BrowserPage: React.FC = () => {
             </span>
             <span className="filter-duplicate-count">
               重复：{duplicateCount}
+            </span>
+            <span className="filter-suggested-count">
+              AI：{suggestedCount}
             </span>
           </div>
         </div>
@@ -433,9 +544,18 @@ const BrowserPage: React.FC = () => {
                   ? (total > 0 ? `废片 ${photos.length} / ${total} 张` : "废片 0 张")
                   : filterMode === "duplicate"
                     ? (total > 0 ? `重复 ${photos.length} / ${total} 张` : "重复 0 张")
-                    : (total > 0 ? `已加载 ${photos.length} / ${total} 张` : "")
+                    : filterMode === "suggested"
+                      ? (total > 0 ? `AI建议 ${photos.length} / ${total} 张` : "AI建议 0 张")
+                      : (total > 0 ? `已加载 ${photos.length} / ${total} 张` : "")
             }
           </span>
+          <button
+            className="btn-detect"
+            onClick={handleGenerateSuggestions}
+            disabled={generating || photos.length === 0}
+          >
+            {generating ? "正在生成..." : "🤖 AI 建议"}
+          </button>
           <button
             className="btn-detect"
             onClick={handleBlurDetect}
@@ -485,6 +605,12 @@ const BrowserPage: React.FC = () => {
               <div className="empty-icon">🔗</div>
               <h3>暂无重复照片</h3>
               <p>点击「检测重复照片」开始分析</p>
+            </div>
+          ) : filterMode === "suggested" && photos.length === 0 && !loading ? (
+            <div className="grid-empty">
+              <div className="empty-icon">🤖</div>
+              <h3>暂无 AI 建议</h3>
+              <p>点击「AI 建议」按钮生成建议</p>
             </div>
           ) : (
             <ImageGrid

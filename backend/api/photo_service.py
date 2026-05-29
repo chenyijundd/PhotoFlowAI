@@ -76,6 +76,7 @@ async def get_photos(
             "is_rejected": p.is_rejected,
             "is_duplicate": p.is_duplicate,
             "duplicate_group": p.duplicate_group,
+            "ai_suggestion": p.ai_suggestion,
         })
 
     return {
@@ -244,6 +245,34 @@ async def get_starred_count():
         return {"count": count}
     except Exception as exc:
         logger.error("Failed to query starred count: %s", exc)
+        raise HTTPException(status_code=500, detail="Database query failed")
+
+
+@router.get("/photos/suggested")
+async def get_suggested_photos(
+    limit: int = Query(100, ge=1, le=1000, description="Number of photos to return"),
+    offset: int = Query(0, ge=0, description="Number of photos to skip"),
+):
+    """Retrieve photos with AI suggestions (ai_suggestion IS NOT NULL)."""
+    try:
+        repo = PhotoRepository()
+        all_photos = repo.get_suggested_photos()
+    except Exception as exc:
+        logger.error("Failed to query suggested photos: %s", exc)
+        raise HTTPException(status_code=500, detail="Database query failed")
+
+    return _build_photo_list_response(all_photos, offset, limit)
+
+
+@router.get("/photos/suggested/count")
+async def get_suggested_count():
+    """Return the count of photos with AI suggestions."""
+    try:
+        repo = PhotoRepository()
+        count = repo.get_suggested_count()
+        return {"count": count}
+    except Exception as exc:
+        logger.error("Failed to query suggested count: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")
 
 

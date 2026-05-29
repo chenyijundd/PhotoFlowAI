@@ -17,6 +17,7 @@ export interface PhotoInfo {
   is_rejected: number;
   is_duplicate: number;
   duplicate_group: string | null;
+  ai_suggestion: string | null;
 }
 
 /** Paginated response from GET /api/photos. */
@@ -43,6 +44,7 @@ export interface PhotoDetailResponse {
   is_rejected: number;
   is_duplicate: number;
   duplicate_group: string | null;
+  ai_suggestion: string | null;
 }
 
 /** Response from PATCH /api/photo/{image_id}/star. */
@@ -104,7 +106,14 @@ export interface GetPhotosByGroupResponse {
 }
 
 /** Filter mode for the photo grid. */
-export type PhotoFilterMode = "all" | "starred" | "blur" | "rejected" | "duplicate";
+export type PhotoFilterMode = "all" | "starred" | "blur" | "rejected" | "duplicate" | "suggested";
+
+/** Response from POST /api/ai/generate-suggestions. */
+export interface GenerateSuggestionsResponse {
+  processed: number;
+  suggestions_generated: number;
+  suggestion_counts: Record<string, number>;
+}
 
 /** API exposed to the renderer via preload contextBridge. */
 export interface ElectronAPI {
@@ -126,6 +135,9 @@ export interface ElectronAPI {
   getDuplicatePhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getDuplicateCount: () => Promise<DuplicateCountResponse>;
   getPhotosByGroup: (groupId: string) => Promise<GetPhotosByGroupResponse>;
+  generateSuggestions: (photoIds?: string[]) => Promise<GenerateSuggestionsResponse>;
+  getSuggestedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  getSuggestedCount: () => Promise<{ count: number }>;
 }
 
 /** Augment the global Window interface. */

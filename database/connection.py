@@ -116,4 +116,10 @@ def init_database(db_path: Optional[str] = None) -> str:
                     conn.execute(
                         "ALTER TABLE photos ADD COLUMN is_duplicate INTEGER DEFAULT 0"
                     )
+
+                # Migration: add ai_suggestion column if missing (v0.5.0)
+                if "ai_suggestion" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN ai_suggestion TEXT DEFAULT NULL"
+                    )
     return path

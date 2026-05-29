@@ -106,6 +106,7 @@ npm run build
 - [x] Compare Mode — 重复组内双图对比，← → 切换对、Tab 切换激活侧、Space/X 标星/废片
 - [x] Cull Workflow — 自动推进、智能下一张、跳过废片、状态浮层、键盘安全
 - [x] 性能稳定性改造 (v1) — 详见下方性能章节
+- [x] AI 建议系统 (v1) — 规则驱动的辅助选片建议，AI 只建议不决策
 
 ## 开发中 / 待实现
 
@@ -115,6 +116,65 @@ npm run build
 - [ ] 精选照片导出
 - [ ] 手动微调
 - [ ] 多选 + 批量操作
+
+---
+
+## AI 建议系统 (AI Suggestion Layer)
+
+### 核心哲学
+
+**AI 只能 Suggest，永远不 Decide。** AI 建议是辅助信息，不是自动决策。用户始终拥有最终控制权。
+
+### 建议类型
+
+| 类型 | 规则 | 接受行为 |
+|------|------|---------|
+| `POSSIBLE_BLUR` | `is_blur == 1` | 自动 Reject |
+| `POSSIBLE_DUPLICATE` | `duplicate_group != null` | 无操作（仅提示） |
+| `POSSIBLE_BEST` | 同重复组中 `blur_score` 最大 且 非废片 | 自动 Star |
+
+每张照片最多一条建议，优先级：POSSIBLE_BEST > POSSIBLE_BLUR > POSSIBLE_DUPLICATE。
+
+### 规则引擎
+
+纯 Python 规则驱动（`backend/ai/suggestions/rules.py`），无机器学习依赖。
+
+- `evaluate_suggestion(photo, best_in_group)` — 评估单张照片
+- `compute_best_in_groups(photos)` — 为每个重复组选出最佳照片
+
+### 键盘工作流
+
+| 按键 | 行为 |
+|------|------|
+| `A` | 接受当前照片的 AI 建议 |
+| 接受后 | 显示 "AI ACCEPTED" 浮层 500ms，自动重新生成建议 |
+
+### Compare Mode 集成
+
+当 Compare Mode 的左/右照片存在 `POSSIBLE_BEST` 建议时，顶部 Header 显示橙色 `AI Suggested` 标签。
+
+### 筛选模式
+
+顶部新增 `[AI Suggestions]` 筛选按钮，显示所有 `ai_suggestion != null` 的照片。
+
+### 建议安全 (Suggestion Safety)
+
+以下操作会自动触发建议重新生成（失效旧建议）：
+
+- 运行模糊检测
+- 运行重复检测
+- 手动 Star（Space）/ Reject（X）
+- 接受 AI 建议（A 键）
+
+**文件：** `backend/ai/suggestions/`
+
+### 未来 AI 扩展
+
+- ML 模型替代规则引擎
+- 建议置信度评分
+- 增量更新（非全量重新生成）
+- 用户反馈学习
+- 更多建议类型（闭眼、表情、构图）
 
 ---
 

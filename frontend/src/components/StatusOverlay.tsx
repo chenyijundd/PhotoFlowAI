@@ -8,7 +8,7 @@
 
 import React from "react";
 
-export type StatusType = "star" | "reject" | null;
+export type StatusType = "star" | "reject" | "ai_accept" | null;
 
 interface StatusOverlayProps {
   type: StatusType;
@@ -19,7 +19,7 @@ const StatusOverlay: React.FC<StatusOverlayProps> = ({ type }) => {
 
   return (
     <div className={`status-overlay status-overlay--${type}`}>
-      {type === "star" ? "★ PICKED" : "✕ REJECTED"}
+      {type === "star" ? "★ PICKED" : type === "reject" ? "✕ REJECTED" : "AI ACCEPTED"}
     </div>
   );
 };

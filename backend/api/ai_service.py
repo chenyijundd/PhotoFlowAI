@@ -13,6 +13,8 @@ from backend.ai.blur_detector.models import BlurDetectRequest, BlurDetectRespons
 from backend.ai.blur_detector.service import run_blur_detection
 from backend.ai.duplicate_detector.models import DuplicateDetectRequest, DuplicateDetectResponse
 from backend.ai.duplicate_detector.service import run_duplicate_detection
+from backend.ai.suggestions.models import GenerateSuggestionsRequest, GenerateSuggestionsResponse
+from backend.ai.suggestions.service import generate_suggestions
 from database.repository import PhotoRepository
 
 logger = logging.getLogger(__name__)
@@ -68,3 +70,25 @@ async def duplicate_detect(body: DuplicateDetectRequest):
     except Exception as exc:
         logger.error("Duplicate detection failed: %s", exc)
         raise HTTPException(status_code=500, detail="Duplicate detection failed")
+
+
+@router.post("/generate-suggestions", response_model=GenerateSuggestionsResponse)
+async def generate_ai_suggestions(body: GenerateSuggestionsRequest = GenerateSuggestionsRequest()):
+    """Generate rule-based AI suggestions for all (or specified) photos.
+
+    Idempotent — re-running overwrites previous suggestions.
+    """
+    try:
+        repo = PhotoRepository()
+        result = generate_suggestions(
+            photo_ids=body.photo_ids,
+            repo=repo,
+        )
+        return GenerateSuggestionsResponse(
+            processed=result["processed"],
+            suggestions_generated=result["suggestions_generated"],
+            suggestion_counts=result["suggestion_counts"],
+        )
+    except Exception as exc:
+        logger.error("Suggestion generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Suggestion generation failed")

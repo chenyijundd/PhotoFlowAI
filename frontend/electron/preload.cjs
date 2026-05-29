@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   runDuplicateDetection: (photoIds) => ipcRenderer.invoke("run-duplicate-detection", photoIds),
   getDuplicatePhotos: (limit, offset) => ipcRenderer.invoke("get-duplicate-photos", limit, offset),
   getPhotosByGroup: (groupId) => ipcRenderer.invoke("get-photos-by-group", groupId),
+  generateSuggestions: (photoIds) => ipcRenderer.invoke("generate-suggestions", photoIds),
+  getSuggestedPhotos: (limit, offset) => ipcRenderer.invoke("get-suggested-photos", limit, offset),
+  getSuggestedCount: () => ipcRenderer.invoke("get-suggested-count"),
   onMenuImport: (callback) => {
     const handler = () => callback();
     ipcRenderer.on("menu-import", handler);

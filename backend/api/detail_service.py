@@ -61,6 +61,7 @@ async def get_photo_detail(image_id: str):
         "is_rejected": p.is_rejected,
         "is_duplicate": p.is_duplicate,
         "duplicate_group": p.duplicate_group,
+        "ai_suggestion": p.ai_suggestion,
     }
 
 
