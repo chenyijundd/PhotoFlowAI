@@ -3,8 +3,11 @@
 from pydantic import BaseModel
 
 
+from typing import Optional
+
+
 class BlurDetectRequest(BaseModel):
-    photo_ids: list[str]
+    photo_ids: Optional[list[str]] = None  # None = process all photos
 
 
 class BlurDetectResponse(BaseModel):

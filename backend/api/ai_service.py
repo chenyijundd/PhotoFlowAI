@@ -32,14 +32,20 @@ DUPLICATE_LOG_PATH = os.path.join(LOG_DIR, "duplicate_detection.log")
 
 @router.post("/blur-detect", response_model=BlurDetectResponse)
 async def blur_detect(body: BlurDetectRequest):
-    """Run blur detection on a list of photo IDs."""
-    if not body.photo_ids:
-        return BlurDetectResponse(processed=0, blurred=0)
-
+    """Run blur detection on specified photo IDs, or all photos if not specified."""
     try:
         repo = PhotoRepository()
+        # If no photo_ids provided, process ALL photos in the database
+        photo_ids = body.photo_ids
+        if not photo_ids:
+            all_photos = repo.get_all_photos()
+            photo_ids = [p.image_id for p in all_photos]
+
+        if not photo_ids:
+            return BlurDetectResponse(processed=0, blurred=0)
+
         processed, blurred = run_blur_detection(
-            body.photo_ids,
+            photo_ids,
             repo,
             log_path=BLUR_LOG_PATH,
         )
@@ -51,14 +57,20 @@ async def blur_detect(body: BlurDetectRequest):
 
 @router.post("/duplicate-detect", response_model=DuplicateDetectResponse)
 async def duplicate_detect(body: DuplicateDetectRequest):
-    """Run duplicate detection on a list of photo IDs."""
-    if not body.photo_ids:
-        return DuplicateDetectResponse(processed=0, duplicate_groups=0, duplicates=0)
-
+    """Run duplicate detection on specified photo IDs, or all photos if not specified."""
     try:
         repo = PhotoRepository()
+        # If no photo_ids provided, process ALL photos in the database
+        photo_ids = body.photo_ids
+        if not photo_ids:
+            all_photos = repo.get_all_photos()
+            photo_ids = [p.image_id for p in all_photos]
+
+        if not photo_ids:
+            return DuplicateDetectResponse(processed=0, duplicate_groups=0, duplicates=0)
+
         processed, duplicate_groups, duplicates = run_duplicate_detection(
-            body.photo_ids,
+            photo_ids,
             repo,
             log_path=DUPLICATE_LOG_PATH,
         )

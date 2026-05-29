@@ -172,9 +172,6 @@ const BrowserPage: React.FC = () => {
 
       await refresh();
 
-      // Suggestion safety: regenerate after manual action (fire-and-forget)
-      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-
       // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
@@ -182,7 +179,7 @@ const BrowserPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to update star rating:", err);
     }
-  }, [refresh, getNextIdAfterAction, selectPhoto, loadStarredCount, loadSuggestedCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadStarredCount]);
 
   // Reject toggle handler
   const handleToggleReject = useCallback(async (imageId: string, currentReject: number) => {
@@ -201,9 +198,6 @@ const BrowserPage: React.FC = () => {
 
       await refresh();
 
-      // Suggestion safety: regenerate after manual action (fire-and-forget)
-      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-
       // Auto-advance to next photo
       if (nextId) {
         selectPhoto(nextId);
@@ -211,7 +205,7 @@ const BrowserPage: React.FC = () => {
     } catch (err) {
       console.error("Failed to update reject status:", err);
     }
-  }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount, loadSuggestedCount]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount]);
 
   // When filter switches, select first photo once data for the new mode arrives.
   const pendingFilterRef = useRef<PhotoFilterMode | null>(null);
@@ -317,66 +311,58 @@ const BrowserPage: React.FC = () => {
 
   // Duplicate detection handler
   const handleDuplicateDetect = useCallback(async () => {
-    if (photos.length === 0) return;
-
     setDetectingDup(true);
     setDetectDupMsg(null);
     try {
-      const photoIds = photos.map((p) => p.image_id);
-      const result: DuplicateDetectResponse = await runDuplicateDetection(photoIds);
+      const result: DuplicateDetectResponse = await runDuplicateDetection([]);
       setDetectDupMsg(`重复检测完成：共 ${result.duplicate_groups} 组，${result.duplicates} 张重复照片`);
       loadDuplicateCount();
       // Suggestion safety: regenerate after duplicate detection
       generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-      refresh();
+      // Note: no refresh() — grid stays at current scroll position
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "重复检测失败";
       setDetectDupMsg(msg);
     } finally {
       setDetectingDup(false);
     }
-  }, [photos, refresh, loadDuplicateCount, loadSuggestedCount]);
+  }, [loadDuplicateCount, loadSuggestedCount]);
 
   // Blur detection handler
   const handleBlurDetect = useCallback(async () => {
-    if (photos.length === 0) return;
-
     setDetecting(true);
     setDetectMsg(null);
     try {
-      const photoIds = photos.map((p) => p.image_id);
-      const result: BlurDetectResponse = await runBlurDetection(photoIds);
+      const result: BlurDetectResponse = await runBlurDetection([]);
       setDetectMsg(`检测完成：已处理 ${result.processed} 张，模糊 ${result.blurred} 张`);
       // Suggestion safety: regenerate after blur detection
       generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-      refresh();
+      // Note: no refresh() — grid stays at current scroll position
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "模糊检测失败";
       setDetectMsg(msg);
     } finally {
       setDetecting(false);
     }
-  }, [photos, refresh]);
+  }, [loadSuggestedCount]);
 
   // AI Suggestions generation handler
   const [generating, setGenerating] = useState(false);
   const handleGenerateSuggestions = useCallback(async () => {
-    if (photos.length === 0) return;
     setGenerating(true);
     setDetectMsg(null);
     try {
-      const photoIds = photos.map((p) => p.image_id);
-      const result: GenerateSuggestionsResponse = await generateSuggestions(photoIds);
+      const result: GenerateSuggestionsResponse = await generateSuggestions();
       setDetectMsg(`AI 建议生成完成：${result.suggestions_generated} 条建议`);
       loadSuggestedCount();
-      refresh();
+      // Note: no refresh() — grid stays at current scroll position
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "AI 建议生成失败";
       setDetectMsg(msg);
     } finally {
       setGenerating(false);
     }
-  }, [photos, refresh, loadSuggestedCount]);
+  }, [loadSuggestedCount]);
 
   // 'A' key — accept AI suggestion for current photo
   const acceptSuggestion = useCallback(async () => {
@@ -409,13 +395,12 @@ const BrowserPage: React.FC = () => {
       setTimeout(() => setStatusOverlay(null), 500);
 
       // Regenerate suggestions (safety: invalidates stale suggestions)
-      await generateSuggestions();
-      loadSuggestedCount();
-      await refresh();
+      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
+      // Note: no refresh() — grid stays at current scroll position
     } catch (err) {
       console.error("Failed to accept AI suggestion:", err);
     }
-  }, [loadStarredCount, loadRejectedCount, loadSuggestedCount, refresh]);
+  }, [loadStarredCount, loadRejectedCount, loadSuggestedCount]);
 
   // 'A' key handler via centralized keyboard manager
   const handleAKey = useCallback(
@@ -552,21 +537,21 @@ const BrowserPage: React.FC = () => {
           <button
             className="btn-detect"
             onClick={handleGenerateSuggestions}
-            disabled={generating || photos.length === 0}
+            disabled={generating}
           >
             {generating ? "正在生成..." : "🤖 AI 建议"}
           </button>
           <button
             className="btn-detect"
             onClick={handleBlurDetect}
-            disabled={detecting || photos.length === 0}
+            disabled={detecting}
           >
             {detecting ? "正在检测..." : "🔍 检测模糊照片"}
           </button>
           <button
             className="btn-detect"
             onClick={handleDuplicateDetect}
-            disabled={detectingDup || photos.length === 0}
+            disabled={detectingDup}
           >
             {detectingDup ? "正在检测..." : "🔗 检测重复照片"}
           </button>
