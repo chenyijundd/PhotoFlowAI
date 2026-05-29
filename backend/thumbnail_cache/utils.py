@@ -3,6 +3,10 @@ PhotoFlow AI - Thumbnail Cache Utilities
 
 Pure functions for thumbnail generation, path resolution, and cache checking.
 Each function is self-contained for independent testing.
+
+Performance (Task 14):
+   - Cache validation: checks source file mtime vs thumbnail mtime
+   - Auto-regen when source is newer than cached thumbnail
 """
 
 import os
@@ -39,6 +43,34 @@ def thumbnail_exists(image_id: str, cache_dir: str) -> bool:
     return os.path.isfile(thumbnail_path_for(image_id, cache_dir))
 
 
+def is_thumbnail_stale(
+    image_id: str,
+    cache_dir: str,
+    source_path: str,
+) -> bool:
+    """
+    Check whether a cached thumbnail is stale.
+
+    A thumbnail is stale if the source image file has been modified
+    after the thumbnail was generated.
+
+    Returns True if the thumbnail should be regenerated.
+    """
+    thumb_path = thumbnail_path_for(image_id, cache_dir)
+    if not os.path.isfile(thumb_path):
+        return True  # No thumbnail at all → needs generation
+
+    if not os.path.isfile(source_path):
+        return False  # Source missing — can't validate, keep thumbnail
+
+    try:
+        source_mtime = os.path.getmtime(source_path)
+        thumb_mtime = os.path.getmtime(thumb_path)
+        return source_mtime > thumb_mtime
+    except OSError:
+        return False  # Can't stat files — keep existing thumbnail
+
+
 def generate_single_thumbnail(
     source_path: str,
     image_id: str,
@@ -52,11 +84,13 @@ def generate_single_thumbnail(
     maintaining the original aspect ratio. The image is never cropped
     or stretched.
 
-    If the thumbnail already exists, it is returned immediately without
-    re-generating.
+    If the thumbnail already exists and is not stale, it is returned
+    immediately without re-generating.
     """
-    # Return cached result immediately if available
-    if thumbnail_exists(image_id, cache_dir):
+    # Check if thumbnail exists and is fresh
+    if thumbnail_exists(image_id, cache_dir) and not is_thumbnail_stale(
+        image_id, cache_dir, source_path
+    ):
         cached_path = thumbnail_path_for(image_id, cache_dir)
         return ThumbnailResult(
             image_id=image_id,
@@ -90,6 +124,7 @@ def generate_single_thumbnail(
             output_path = thumbnail_path_for(image_id, cache_dir)
             img.save(output_path, format=THUMBNAIL_FORMAT, quality=THUMBNAIL_QUALITY)
 
+        logger.debug("Generated thumbnail for %s → %s", source_path, output_path)
         return ThumbnailResult(
             image_id=image_id,
             source_path=source_path,

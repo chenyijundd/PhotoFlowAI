@@ -10,10 +10,15 @@
  *   End   last photo
  *
  * Only active when no input / textarea is focused.
+ *
+ * Performance (Task 14):
+ *   - Uses centralized keyboard manager (single global listener)
+ *   - Stable callback via ref to avoid stale closures
  */
 
-import { useEffect, useCallback, useMemo, useState } from "react";
+import { useEffect, useCallback, useMemo, useState, useRef } from "react";
 import type { PhotoInfo, PhotoFilterMode } from "../../types";
+import { useKeyboardHandler, KEY_PRIORITY } from "./useKeyboardManager";
 
 export type ZoomMode = "fit" | "zoom100";
 
@@ -94,88 +99,103 @@ export function useKeyboardNavigation({
     return photos.findIndex((p) => p.image_id === selectedId);
   }, [photos, selectedId]);
 
+  // Use refs to avoid stale closures in the keyboard handler
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const selectPhotoRef = useRef(selectPhoto);
+  selectPhotoRef.current = selectPhoto;
+  const onToggleStarRef = useRef(onToggleStar);
+  onToggleStarRef.current = onToggleStar;
+  const onToggleRejectRef = useRef(onToggleReject);
+  onToggleRejectRef.current = onToggleReject;
+
   // In rejected filter mode, we should NOT skip rejected photos
   const skipRejected = filterMode !== "rejected";
+  const skipRejectedRef = useRef(skipRejected);
+  skipRejectedRef.current = skipRejected;
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input
+  // Grid keyboard handler via centralized manager
+  const handleGridKey = useCallback(
+    (e: KeyboardEvent): boolean => {
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+
+      const p = photosRef.current;
+      const idx = selectedIndexRef.current;
+      const sid = selectedIdRef.current;
 
       switch (e.key) {
         case "ArrowLeft": {
           e.preventDefault();
-          const nextIdx = findNextNonRejectedIndex(photos, selectedIndex, -1, skipRejected);
+          const nextIdx = findNextNonRejectedIndex(p, idx, -1, skipRejectedRef.current);
           if (nextIdx >= 0) {
-            selectPhoto(photos[nextIdx].image_id);
+            selectPhotoRef.current(p[nextIdx].image_id);
           }
-          break;
+          return true;
         }
         case "ArrowRight": {
           e.preventDefault();
-          const nextIdx = findNextNonRejectedIndex(photos, selectedIndex, 1, skipRejected);
+          const nextIdx = findNextNonRejectedIndex(p, idx, 1, skipRejectedRef.current);
           if (nextIdx >= 0) {
-            selectPhoto(photos[nextIdx].image_id);
+            selectPhotoRef.current(p[nextIdx].image_id);
           }
-          break;
+          return true;
         }
         case " ":
         case "Space": {
-          // Space — toggle star
           e.preventDefault();
-          if (selectedId && selectedIndex >= 0) {
-            const currentStar = photos[selectedIndex].star_rating ?? 0;
-            onToggleStar(selectedId, currentStar);
+          if (sid && idx >= 0) {
+            const currentStar = p[idx].star_rating ?? 0;
+            onToggleStarRef.current(sid, currentStar);
           }
-          break;
+          return true;
         }
         case "x":
         case "X": {
-          // X — toggle reject
           e.preventDefault();
-          if (selectedId && selectedIndex >= 0) {
-            const currentReject = photos[selectedIndex].is_rejected ?? 0;
-            onToggleReject(selectedId, currentReject);
+          if (sid && idx >= 0) {
+            const currentReject = p[idx].is_rejected ?? 0;
+            onToggleRejectRef.current(sid, currentReject);
           }
-          break;
+          return true;
         }
         case "Enter": {
           e.preventDefault();
           setZoomMode((prev) => (prev === "fit" ? "zoom100" : "fit"));
-          break;
+          return true;
         }
         case "Home": {
           e.preventDefault();
-          const firstIdx = findNextNonRejectedIndex(photos, -1, 1, skipRejected);
+          const firstIdx = findNextNonRejectedIndex(p, -1, 1, skipRejectedRef.current);
           if (firstIdx >= 0) {
-            selectPhoto(photos[firstIdx].image_id);
-          } else if (photos.length > 0) {
-            selectPhoto(photos[0].image_id);
+            selectPhotoRef.current(p[firstIdx].image_id);
+          } else if (p.length > 0) {
+            selectPhotoRef.current(p[0].image_id);
           }
-          break;
+          return true;
         }
         case "End": {
           e.preventDefault();
-          const lastIdx = findNextNonRejectedIndex(photos, photos.length, -1, skipRejected);
+          const lastIdx = findNextNonRejectedIndex(p, p.length, -1, skipRejectedRef.current);
           if (lastIdx >= 0) {
-            selectPhoto(photos[lastIdx].image_id);
-          } else if (photos.length > 0) {
-            selectPhoto(photos[photos.length - 1].image_id);
+            selectPhotoRef.current(p[lastIdx].image_id);
+          } else if (p.length > 0) {
+            selectPhotoRef.current(p[p.length - 1].image_id);
           }
-          break;
+          return true;
         }
       }
+      return false;
     },
-    [selectedIndex, photos, selectedId, selectPhoto, onToggleStar, onToggleReject, skipRejected],
+    [], // Stable reference — all data via refs
   );
 
-  // Attach / detach global listener
-  useEffect(() => {
-    if (!active) return;
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [active, handleKeyDown]);
+  // Register via centralized keyboard manager
+  useKeyboardHandler("grid-navigation", handleGridKey, KEY_PRIORITY.GRID, active);
 
   // Auto-scroll grid when selection changes
   useEffect(() => {

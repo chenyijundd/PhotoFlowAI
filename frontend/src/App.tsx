@@ -2,12 +2,18 @@
  * PhotoFlow AI - Root App Component
  *
  * Manages backend connectivity and renders the photo browser.
+ *
+ * Performance (Task 14):
+ *   - Wraps app in ErrorBoundary to prevent full white-screen on crash
+ *   - Includes PerformanceOverlay for dev-mode debugging
  */
 
 import React, { useState, useEffect } from "react";
 import BrowserPage from "./pages/BrowserPage";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
+import ErrorBoundary from "./components/ErrorBoundary";
+import PerformanceOverlay from "./components/PerformanceOverlay";
 
 type BackendStatus = "connecting" | "connected" | "error";
 
@@ -56,11 +62,14 @@ const App: React.FC = () => {
   }
 
   return (
-    <PhotoSelectionProvider>
-      <CompareModeProvider>
-        <BrowserPage />
-      </CompareModeProvider>
-    </PhotoSelectionProvider>
+    <ErrorBoundary>
+      <PhotoSelectionProvider>
+        <CompareModeProvider>
+          <BrowserPage />
+          <PerformanceOverlay />
+        </CompareModeProvider>
+      </PhotoSelectionProvider>
+    </ErrorBoundary>
   );
 };
 

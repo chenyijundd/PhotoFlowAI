@@ -10,8 +10,12 @@ import time
 from typing import Optional
 
 from .detector import calculate_blur
+from backend.logging_config import setup_blur_logging
 
 logger = logging.getLogger("blur_detection")
+
+# Ensure rotating log handler is set up at import time
+setup_blur_logging()
 
 
 def run_blur_detection(
@@ -24,17 +28,11 @@ def run_blur_detection(
     Args:
         photo_ids: List of image IDs to process.
         repo: PhotoRepository instance for database operations.
-        log_path: Optional path to write a detection log file.
+        log_path: Deprecated — rotating log is configured at import time.
 
     Returns:
         (processed_count, blurred_count)
     """
-    if log_path:
-        fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-        fh.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s"
-        ))
-        logger.addHandler(fh)
 
     total = len(photo_ids)
     processed = 0
@@ -81,9 +79,5 @@ def run_blur_detection(
     logger.info("=== Blur Detection Complete ===")
     logger.info("Processed: %d | Blurred: %d | Failed: %d", processed, blurred, failed)
     logger.info("Avg time per image: %.3fs", avg_time)
-
-    if log_path:
-        logger.removeHandler(fh)
-        fh.close()
 
     return processed, blurred

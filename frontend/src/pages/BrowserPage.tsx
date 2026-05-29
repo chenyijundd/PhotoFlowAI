@@ -8,6 +8,7 @@ import { usePhotos } from "../hooks/usePhotos";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useCompareMode } from "../context/CompareModeContext";
 import { useKeyboardNavigation, findNextUnprocessed } from "../hooks/useKeyboardNavigation";
+import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
@@ -213,7 +214,7 @@ const BrowserPage: React.FC = () => {
     gridRef.current?.scrollToIndex(index);
   }, []);
 
-  // Keyboard navigation hook
+  // Keyboard navigation hook (uses centralized keyboard manager internally)
   const { zoomMode } = useKeyboardNavigation({
     photos,
     selectedId,
@@ -225,25 +226,34 @@ const BrowserPage: React.FC = () => {
     filterMode,
   });
 
-  // 'C' key — enter compare mode
-  useEffect(() => {
-    if (isCompareMode) return;
+  // 'C' key — enter compare mode (via centralized keyboard manager)
+  // Using refs to avoid stale closures
+  const selectedPhotoRef = useRef(selectedPhoto);
+  selectedPhotoRef.current = selectedPhoto;
+  const enterCompareModeRef = useRef(enterCompareMode);
+  enterCompareModeRef.current = enterCompareMode;
+  const isCompareModeRef = useRef(isCompareMode);
+  isCompareModeRef.current = isCompareMode;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
+  const handleCKey = useCallback(
+    (e: KeyboardEvent): boolean => {
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
 
       if (e.key === "c" || e.key === "C") {
-        if (selectedPhoto?.duplicate_group) {
+        const photo = selectedPhotoRef.current;
+        if (photo?.duplicate_group && !isCompareModeRef.current) {
           e.preventDefault();
-          enterCompareMode(selectedPhoto.image_id, selectedPhoto.duplicate_group);
+          enterCompareModeRef.current(photo.image_id, photo.duplicate_group);
+          return true;
         }
       }
-    };
+      return false;
+    },
+    [],
+  );
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isCompareMode, selectedPhoto, enterCompareMode]);
+  useKeyboardHandler("app-compare-trigger", handleCKey, KEY_PRIORITY.APP, !isCompareMode);
 
   // When exiting compare mode, refresh grid and counts
   const prevCompareRef = useRef(isCompareMode);

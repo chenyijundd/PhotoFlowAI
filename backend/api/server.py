@@ -13,6 +13,10 @@ from .detail_service import router as detail_router
 from .ai_service import router as ai_router
 from backend.importer.import_service import router as import_router
 from database.connection import init_database
+from backend.logging_config import setup_all_logging
+
+# Initialize rotating log handlers
+setup_all_logging()
 
 # Ensure database and schema exist at startup
 init_database()

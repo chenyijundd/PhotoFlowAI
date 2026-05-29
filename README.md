@@ -30,11 +30,11 @@ PhotoFlowAI/
 │   ├── src/
 │   │   ├── api/          # API 客户端
 │   │   ├── components/   # UI 组件
-│   │   ├── context/      # 选中图片状态管理
-│   │   ├── hooks/        # 自定义 Hook（键盘导航、数据加载）
+│   │   ├── context/      # 状态管理（选中、对比模式）
+│   │   ├── hooks/        # 自定义 Hook（键盘导航、键盘管理、Lazy Load、数据加载）
 │   │   ├── pages/        # 页面组件
 │   │   ├── ui/           # 样式文件
-│   │   ├── App.tsx       # 根组件
+│   │   ├── App.tsx       # 根组件（含 ErrorBoundary）
 │   │   └── main.tsx      # 入口
 │   ├── types/            # TypeScript 类型定义
 │   └── package.json
@@ -48,10 +48,11 @@ PhotoFlowAI/
 │   │   └── scoring/            # 综合评分
 │   ├── importer/         # 照片导入工作流
 │   ├── thumbnail_cache/  # 缩略图缓存
-│   └── export/           # 导出模块
+│   ├── export/           # 导出模块
+│   └── logging_config.py # 集中化日志配置（RotatingFileHandler）
 ├── database/              # SQLite 数据库
 ├── cache/                 # 缓存目录
-├── logs/                  # 日志目录
+├── logs/                  # 日志目录（轮转：10MB × 5）
 ├── tests/                 # 测试
 └── main.py                # 项目入口
 ```
@@ -99,11 +100,12 @@ npm run build
 - [x] 全尺寸图片预览 — Fit 模式 / 100% 模式（Enter 切换）
 - [x] 星标评级 — 0★/1★ 切换，持久化到 SQLite
 - [x] 废片标记工作流 — X 标记/取消废片，废片筛选模式，当前图片失效自动切换
-- [x] 筛选工作流 — 全部照片 / 已选照片（star_rating==1）/ 模糊照片 / 废片 / 重复照片切换浏览
+- [x] 筛选工作流 — 全部照片 / 已选照片 / 模糊照片 / 废片 / 重复照片切换浏览
 - [x] AI 模糊检测 — Laplacian Variance 算法，检测结果持久化，模糊筛选模式
 - [x] AI 重复照片检测 — Perceptual Hash (pHash) 算法，DUP 标签，Compare Mode 对比浏览
 - [x] Compare Mode — 重复组内双图对比，← → 切换对、Tab 切换激活侧、Space/X 标星/废片
 - [x] Cull Workflow — 自动推进、智能下一张、跳过废片、状态浮层、键盘安全
+- [x] 性能稳定性改造 (v1) — 详见下方性能章节
 
 ## 开发中 / 待实现
 
@@ -113,6 +115,139 @@ npm run build
 - [ ] 精选照片导出
 - [ ] 手动微调
 - [ ] 多选 + 批量操作
+
+---
+
+## 性能与稳定性 (v1)
+
+> **目标负载：5,000–20,000 张照片。** 第一轮性能稳定性改造。
+
+### Lazy Load 策略
+
+**基于 IntersectionObserver 的真正懒加载**（无第三方库依赖）。
+
+- 每张 `ImageCard` 使用 `useIntersectionObserver` hook (`src/hooks/useIntersectionObserver.ts`)
+- 缩略图 `<img>` 仅当卡片进入视口 **300px 范围内**时才插入 DOM
+- 加载后保持可见 (`freezeOnceVisible: true`)，回滚时不闪烁
+- `rootMargin: "300px"` 提供足够缓冲，快速滚动也不露白
+
+**文件：** [useIntersectionObserver.ts](frontend/src/hooks/useIntersectionObserver.ts)
+
+### Re-render 优化
+
+**精准局部更新** — 标星/Reject 不会触发整个 Grid 重新渲染。
+
+| 技术 | 位置 | 目的 |
+|------|------|------|
+| `React.memo` 自定义比较器 | `ImageCard.tsx` | 仅在 photo 数据或选中状态实际变化时渲染 |
+| `useMemo` Cell 渲染器 | `ImageGrid.tsx` | Cell 组件引用在渲染间保持稳定 |
+| `useCallback` 全面使用 | 全部组件 | 稳定回调引用防止子组件重渲染 |
+| `useRef` 存最新值 | `useKeyboardNavigation.ts`, `BrowserPage.tsx` | 无需重新注册即可避免闭包过期 |
+
+**核心逻辑：** `ImageCard` memo 比较器检查 7 个关键字段 (`image_id`, `star_rating`, `is_rejected`, `is_blur`, `is_duplicate`, `duplicate_group`, `style`)。只有实际数据变化的卡片才会重渲染。
+
+**文件：** [ImageCard.tsx](frontend/src/components/ImageCard.tsx), [ImageGrid.tsx](frontend/src/components/ImageGrid.tsx)
+
+### Preload 策略
+
+**轻量级 Compare Mode 预加载**（无复杂缓存系统）。
+
+Compare Mode 中：
+- 下一对对比图 (currentIndex+1, currentIndex+2) 通过离屏 `new Image()` 预热浏览器 HTTP 缓存
+- 用户切换到下一对时图片即时显示
+- 旧预加载引用在 pair 变化时释放
+- Performance Debug Overlay 显示为 "Preload: N"
+
+**文件：** [ComparePage.tsx](frontend/src/components/ComparePage.tsx) — `preloadImage()` 函数
+
+### 键盘管理器
+
+**单一全局键盘监听器** — 所有键盘输入通过一个集中管理器流转。
+
+设计：
+- `window` 上**仅一个** `keydown` 事件监听器
+- 组件按**优先级**注册处理器：
+  - `COMPARE (100)` — Compare Mode 快捷键（最高优先级）
+  - `GRID (50)` — 网格导航（← → Space X Enter Home End）
+  - `APP (10)` — 应用级快捷键（C 进入对比模式）
+- 高优先级处理器先消费事件，低优先级仅在事件未消费时触发
+- 注册时返回清理函数 — 无监听器泄漏
+- 基于 Ref 的处理器更新避免闭包过期
+
+**文件：** [useKeyboardManager.ts](frontend/src/hooks/useKeyboardManager.ts)
+
+**相比之前（3 个独立 `addEventListener` 调用）的优势：**
+- 无重复绑定
+- 无冲突处理器
+- 无闭包过期 Bug
+- 优先级系统防止 Compare Mode 和 Grid Mode 快捷键同时触发
+
+### 内存安全
+
+**切换照片时主动释放图片对象。**
+
+| 组件 | 策略 |
+|------|------|
+| `FullsizePreview` | `imageId` 变化时 cleanup effect 中 `img.src = ""` + `removeAttribute("src")` |
+| `ComparePreview` | 同样模式 — 跟踪 `prevImageIdRef`，变化时释放旧 src |
+| `ComparePage` | Preload refs (`HTMLImageElement[]`) 在 pair 变化时清理 |
+
+**核心模式：**
+```typescript
+useEffect(() => {
+  return () => {
+    if (imgRef.current) {
+      imgRef.current.src = "";
+      imgRef.current.removeAttribute("src");
+    }
+  };
+}, [imageId]);
+```
+
+确保：
+- 旧图片数据立即可被 GC 回收
+- 快速切图时无内存累积（普通模式 + Compare Mode A→B→C 导航）
+- 预加载图片无内存泄漏
+
+**文件：** [FullsizePreview.tsx](frontend/src/components/FullsizePreview.tsx), [ComparePreview.tsx](frontend/src/components/ComparePreview.tsx)
+
+### 日志轮转 (Log Rotation)
+
+所有后端日志使用 `RotatingFileHandler`：
+- **单文件最大：** 10 MB
+- **备份数量：** 5 个文件（如 `import.log`, `import.log.1`, ..., `import.log.5`）
+- **日志文件：** `import.log`, `blur_detection.log`, `duplicate_detection.log`, `app.log`
+- 通过集中化 `logging_config.py` 在导入时配置
+- 旧的动态 `FileHandler` 添加/移除模式已替换为持久轮转处理器
+
+**文件：** [logging_config.py](backend/logging_config.py)
+
+### 当前可扩展性限制
+
+| 指标 | 当前状态 | 备注 |
+|------|---------|------|
+| 照片数量 | 5,000–20,000 | 已测试 |
+| 虚拟化网格 | react-window FixedSizeGrid | ✅ |
+| 缩略图生成 | 顺序（单线程） | V1 可接受 |
+| 后端分页 | 内存切片（全量加载后分页） | 未来需改为 SQL 级 LIMIT/OFFSET |
+| 图片解码 | `decoding="async"` | ✅ |
+| Compare Mode | 双图对比 | ✅ |
+| 键盘处理器 | 单一全局监听器 | ✅ |
+| 日志轮转 | 10 MB × 5 文件 | ✅ |
+| GPU 加速 | 无 | 未来 |
+| Worker 线程 | 无 | 未来 |
+| RAW 格式 | 不支持 | 未来 |
+| 多显示器 | 不支持 | 未来 |
+
+### 已知限制 (V1)
+- 缩略图为 200px 最大边长 — HiDPI 显示器上可能偏软
+- 全尺寸预览加载原始文件无降采样 — 高分辨率照片可能消耗较大内存
+- 图片端点无 HTTP `Cache-Control` 头 — 浏览器缓存仅为启发式
+- 后端分页先加载全量到内存再切片 (`all_photos[offset:offset + limit]`)
+- 重复检测为 O(n²) 两两比较 — 20K+ 照片可能较慢
+- Performance Overlay 键盘监听器数量每秒更新一次（轮询）
+
+---
 
 ## Cull Workflow（专业快速筛片工作流）
 
@@ -133,13 +268,13 @@ Cull Workflow 是面向职业摄影师的快速筛片工作流。借鉴 Photo Me
 
 `findNextUnprocessed()` 在 auto-advance 时优先选择"未处理"照片（star_rating==0 且 is_rejected==0），跳过已标星和已废片的照片。如果后方没有未处理照片，则选择下一张任意照片。
 
-实现位置: [useKeyboardNavigation.ts:61-77](frontend/src/hooks/useKeyboardNavigation.ts#L61-L77)
+实现位置: [useKeyboardNavigation.ts](frontend/src/hooks/useKeyboardNavigation.ts)
 
 ### 跳过废片 (Skip Rejected)
 
 `←` `→` 导航时自动跳过 is_rejected==1 的照片，减少无效浏览。在"废片"筛选模式下不跳过（因为用户主动选择查看废片）。
 
-实现位置: [useKeyboardNavigation.ts:41-55](frontend/src/hooks/useKeyboardNavigation.ts#L41-L55)
+实现位置: [useKeyboardNavigation.ts](frontend/src/hooks/useKeyboardNavigation.ts)
 
 ### 状态浮层 (Status Overlay)
 
@@ -159,15 +294,15 @@ Cull Workflow 是面向职业摄影师的快速筛片工作流。借鉴 Photo Me
 | 组内非废片照片 < 2 张 | 自动退出 Compare Mode |
 | 无有效 pair | 自动退出 Compare Mode |
 
-实现位置: [CompareModeContext.tsx:103-141](frontend/src/context/CompareModeContext.tsx#L103-L141)
+实现位置: [CompareModeContext.tsx](frontend/src/context/CompareModeContext.tsx)
 
 ### 状态优先级 (State Priority)
 
 键盘事件处理优先级（从高到低）：
 
-1. **Compare Mode 键盘** — 进入 Compare Mode 后，BrowserPage 键盘事件完全禁用（`active: !isCompareMode`）
+1. **Compare Mode 键盘** — 进入 Compare Mode 后，Grid 键盘事件完全禁用
 2. **INPUT/TEXTAREA/SELECT** — 所有键盘 handler 执行前检查 `e.target.tagName`，输入框中不触发快捷键
-3. **BrowserPage 键盘** — 仅当 Compare Mode 未激活时生效
+3. **Grid 键盘** — 仅当 Compare Mode 未激活时生效
 
 ### 筛选模式下的失效处理
 
@@ -177,7 +312,7 @@ Cull Workflow 是面向职业摄影师的快速筛片工作流。借鉴 Photo Me
 | 废片 (rejected) | 取消废片 | 照片从列表消失，自动选下一张 |
 | 全部照片 (all) | 标星/废片 | 照片保留在列表，自动推进 |
 
-实现位置: [BrowserPage.tsx:114-143](frontend/src/pages/BrowserPage.tsx#L114-L143) `getNextIdAfterAction()`
+实现位置: [BrowserPage.tsx](frontend/src/pages/BrowserPage.tsx) — `getNextIdAfterAction()`
 
 ### 已知限制 (Known Limitations)
 
