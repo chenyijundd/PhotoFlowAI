@@ -144,6 +144,7 @@ export function useKeyboardHandler(
 // Priority constants
 export const KEY_PRIORITY = {
   COMPARE: 100,
+  LIGHTBOX: 75,
   GRID: 50,
   APP: 10,
   DEFAULT: 0,

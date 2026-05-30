@@ -12,6 +12,7 @@ import React, { useState, useEffect } from "react";
 import BrowserPage from "./pages/BrowserPage";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
+import { LightboxModeProvider } from "./context/LightboxModeContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import PerformanceOverlay from "./components/PerformanceOverlay";
 
@@ -65,9 +66,11 @@ const App: React.FC = () => {
     <ErrorBoundary>
       <PhotoSelectionProvider>
         <CompareModeProvider>
+        <LightboxModeProvider>
           <BrowserPage />
-          <PerformanceOverlay />
-        </CompareModeProvider>
+        </LightboxModeProvider>
+        <PerformanceOverlay />
+      </CompareModeProvider>
       </PhotoSelectionProvider>
     </ErrorBoundary>
   );

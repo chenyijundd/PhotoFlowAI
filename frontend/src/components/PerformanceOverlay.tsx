@@ -47,8 +47,8 @@ const PerformanceOverlay: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Only show in development
-  if (process.env.NODE_ENV !== "development") {
+  // Only show in development (Vite dev server)
+  if (!import.meta.env.DEV) {
     return null;
   }
 

@@ -34,9 +34,9 @@ backend/ai/suggestions/
 - **含义：** 该照片属于重复组，可能有更好的选择
 - **接受行为：** 无操作（仅信息提示）
 
-### POSSIBLE_BEST
-- **规则：** 同 duplicate group 中 `blur_score` 最大 且 `is_rejected == 0`
-- **含义：** 该照片是重复组中最清晰的一张
+### POSSIBLE_BEST (V2)
+- **规则：** 非废片 (`is_rejected == 0`) 且 非模糊 (`is_blur == 0`) 且 `blur_score > 200`
+- **含义：** 该照片清晰度高，值得优先考虑
 - **接受行为：** 自动 Star
 
 ### 优先级

@@ -142,7 +142,17 @@ ipcMain.handle("get-blur-photos", async (_event, limit = 100, offset = 0) => {
   return response.json();
 });
 
-/** Run blur detection on a set of photo IDs through IPC. */
+/** Fetch blur count from the Python backend through IPC. */
+ipcMain.handle("get-blur-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/blur/count`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Start blur detection on a set of photo IDs through IPC. */
 ipcMain.handle("run-blur-detection", async (_event, photoIds) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-detect`;
   const response = await fetch(url, {
@@ -154,6 +164,22 @@ ipcMain.handle("run-blur-detection", async (_event, photoIds) => {
     const err = await response.text();
     throw new Error(err || `Backend returned ${response.status}`);
   }
+  return response.json();
+});
+
+/** Poll blur detection progress. */
+ipcMain.handle("blur-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-progress/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Cancel blur detection. */
+ipcMain.handle("blur-cancel", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-cancel/${taskId}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   return response.json();
 });
 
@@ -211,7 +237,7 @@ ipcMain.handle("get-duplicate-count", async () => {
   return response.json();
 });
 
-/** Run duplicate detection on a set of photo IDs through IPC. */
+/** Start duplicate detection on a set of photo IDs through IPC. */
 ipcMain.handle("run-duplicate-detection", async (_event, photoIds) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/duplicate-detect`;
   const response = await fetch(url, {
@@ -223,6 +249,22 @@ ipcMain.handle("run-duplicate-detection", async (_event, photoIds) => {
     const err = await response.text();
     throw new Error(err || `Backend returned ${response.status}`);
   }
+  return response.json();
+});
+
+/** Poll duplicate detection progress. */
+ipcMain.handle("duplicate-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/duplicate-progress/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Cancel duplicate detection. */
+ipcMain.handle("duplicate-cancel", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/duplicate-cancel/${taskId}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   return response.json();
 });
 

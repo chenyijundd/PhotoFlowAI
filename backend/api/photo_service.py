@@ -107,6 +107,7 @@ def _build_photo_list_response(photos, offset, limit):
             "is_rejected": p.is_rejected,
             "is_duplicate": p.is_duplicate,
             "duplicate_group": p.duplicate_group,
+            "ai_suggestion": p.ai_suggestion,
         })
     return {
         "total": len(photos),
@@ -162,6 +163,18 @@ async def get_rejected_photos(
         raise HTTPException(status_code=500, detail="Database query failed")
 
     return _build_photo_list_response(all_photos, offset, limit)
+
+
+@router.get("/photos/blur/count")
+async def get_blur_count():
+    """Return the count of blur photos."""
+    try:
+        repo = PhotoRepository()
+        count = repo.get_blur_count()
+        return {"count": count}
+    except Exception as exc:
+        logger.error("Failed to query blur count: %s", exc)
+        raise HTTPException(status_code=500, detail="Database query failed")
 
 
 @router.get("/photos/rejected/count")
@@ -231,6 +244,7 @@ async def get_photos_by_duplicate_group(group_id: str):
             "is_rejected": p.is_rejected,
             "is_duplicate": p.is_duplicate,
             "duplicate_group": p.duplicate_group,
+            "ai_suggestion": p.ai_suggestion,
         })
 
     return {"photos": result, "group_id": group_id, "total": len(result)}

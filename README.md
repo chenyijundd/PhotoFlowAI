@@ -132,7 +132,7 @@ npm run build
 |------|------|---------|
 | `POSSIBLE_BLUR` | `is_blur == 1` | 自动 Reject |
 | `POSSIBLE_DUPLICATE` | `duplicate_group != null` | 无操作（仅提示） |
-| `POSSIBLE_BEST` | 同重复组中 `blur_score` 最大 且 非废片 | 自动 Star |
+| `POSSIBLE_BEST` | 非废片 + 非模糊 + `blur_score > 200` | 自动 Star |
 
 每张照片最多一条建议，优先级：POSSIBLE_BEST > POSSIBLE_BLUR > POSSIBLE_DUPLICATE。
 
@@ -140,8 +140,7 @@ npm run build
 
 纯 Python 规则驱动（`backend/ai/suggestions/rules.py`），无机器学习依赖。
 
-- `evaluate_suggestion(photo, best_in_group)` — 评估单张照片
-- `compute_best_in_groups(photos)` — 为每个重复组选出最佳照片
+- `evaluate_suggestion(photo)` — 评估单张照片（独立规则，不依赖分组）
 
 ### 键盘工作流
 

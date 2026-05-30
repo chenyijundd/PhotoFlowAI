@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurDetectResponse, RejectResponse, RejectedCountResponse, DuplicateDetectResponse, DuplicateCountResponse, GetPhotosByGroupResponse, GenerateSuggestionsResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, GenerateSuggestionsResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -99,10 +99,23 @@ export async function fetchBlurPhotos(
   return res.json();
 }
 
-/** Run blur detection on a list of photo IDs. */
+/** Fetch the count of blur photos. */
+export async function fetchBlurCount(): Promise<BlurCountResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.getBlurCount();
+  }
+  const url = `${BACKEND_URL}/api/photos/blur/count`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Start blur detection (async — returns task_id). */
 export async function runBlurDetection(
   photoIds: string[]
-): Promise<BlurDetectResponse> {
+): Promise<TaskStartResponse> {
   if (window.electronAPI) {
     return window.electronAPI.runBlurDetection(photoIds);
   }
@@ -112,9 +125,29 @@ export async function runBlurDetection(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ photo_ids: photoIds }),
   });
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Poll blur detection progress. */
+export async function blurProgress(taskId: string): Promise<DetectionProgressResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.blurProgress(taskId);
   }
+  const url = `${BACKEND_URL}/api/ai/blur-progress/${taskId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Cancel blur detection. */
+export async function blurCancel(taskId: string): Promise<{ status: string }> {
+  if (window.electronAPI) {
+    return window.electronAPI.blurCancel(taskId);
+  }
+  const url = `${BACKEND_URL}/api/ai/blur-cancel/${taskId}`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }
 
@@ -180,10 +213,10 @@ export async function fetchRejectedCount(): Promise<RejectedCountResponse> {
   return res.json();
 }
 
-/** Run duplicate detection on a list of photo IDs. */
+/** Start duplicate detection (async — returns task_id). */
 export async function runDuplicateDetection(
   photoIds: string[]
-): Promise<DuplicateDetectResponse> {
+): Promise<TaskStartResponse> {
   if (window.electronAPI) {
     return window.electronAPI.runDuplicateDetection(photoIds);
   }
@@ -193,9 +226,29 @@ export async function runDuplicateDetection(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ photo_ids: photoIds }),
   });
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Poll duplicate detection progress. */
+export async function duplicateProgress(taskId: string): Promise<DetectionProgressResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.duplicateProgress(taskId);
   }
+  const url = `${BACKEND_URL}/api/ai/duplicate-progress/${taskId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Cancel duplicate detection. */
+export async function duplicateCancel(taskId: string): Promise<{ status: string }> {
+  if (window.electronAPI) {
+    return window.electronAPI.duplicateCancel(taskId);
+  }
+  const url = `${BACKEND_URL}/api/ai/duplicate-cancel/${taskId}`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }
 

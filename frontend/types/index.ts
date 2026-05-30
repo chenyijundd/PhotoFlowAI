@@ -68,10 +68,29 @@ export interface StarredCountResponse {
   count: number;
 }
 
-/** Response from POST /api/ai/blur-detect. */
-export interface BlurDetectResponse {
-  processed: number;
+/** Response from GET /api/photos/blur/count. */
+export interface BlurCountResponse {
+  count: number;
+}
+
+/** Response from POST /api/ai/blur-detect (now async — returns task_id). */
+export interface TaskStartResponse {
+  task_id: string;
+  total: number;
+}
+
+/** Response from GET /api/ai/{blur,duplicate}-progress/{task_id}. */
+export interface DetectionProgressResponse {
+  task_id: string;
+  status: "running" | "completed" | "cancelled" | "error";
+  phase: string;
+  total: number;
+  progress: number;
+  current_file: string;
   blurred: number;
+  duplicate_groups: number;
+  duplicate_count: number;
+  failed: number;
 }
 
 /** Response from PATCH /api/photo/{image_id}/reject. */
@@ -107,6 +126,9 @@ export interface GetPhotosByGroupResponse {
 
 /** Filter mode for the photo grid. */
 export type PhotoFilterMode = "all" | "starred" | "blur" | "rejected" | "duplicate" | "suggested";
+
+/** Zoom mode for full-size image preview. */
+export type ZoomMode = "fit" | "zoom100";
 
 /** Export mode. */
 export type ExportMode = "picked" | "rejected" | "current_filter" | "compare";
@@ -159,11 +181,16 @@ export interface ElectronAPI {
   getStarredPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getStarredCount: () => Promise<StarredCountResponse>;
   getBlurPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
-  runBlurDetection: (photoIds: string[]) => Promise<BlurDetectResponse>;
+  getBlurCount: () => Promise<BlurCountResponse>;
+  runBlurDetection: (photoIds: string[]) => Promise<TaskStartResponse>;
+  blurProgress: (taskId: string) => Promise<DetectionProgressResponse>;
+  blurCancel: (taskId: string) => Promise<{ status: string }>;
   updateRejectStatus: (imageId: string, isRejected: number) => Promise<RejectResponse>;
   getRejectedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getRejectedCount: () => Promise<RejectedCountResponse>;
-  runDuplicateDetection: (photoIds: string[]) => Promise<DuplicateDetectResponse>;
+  runDuplicateDetection: (photoIds: string[]) => Promise<TaskStartResponse>;
+  duplicateProgress: (taskId: string) => Promise<DetectionProgressResponse>;
+  duplicateCancel: (taskId: string) => Promise<{ status: string }>;
   getDuplicatePhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getDuplicateCount: () => Promise<DuplicateCountResponse>;
   getPhotosByGroup: (groupId: string) => Promise<GetPhotosByGroupResponse>;

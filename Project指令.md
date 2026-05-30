@@ -3485,3 +3485,1540 @@ AI评分
 只完成：
 
 第一版专业摄影 Compare Mode。
+Task 13：实现 Cull Workflow（专业快速筛片工作流）
+
+禁止实现其他功能。
+
+严格按以下要求开发。
+
+核心目标
+
+让摄影师：
+
+几乎不需要鼠标。
+
+完成：
+
+浏览
+标星
+Reject
+Compare
+下一张
+
+形成：
+
+真正职业级筛片节奏。
+当前阶段禁止
+
+禁止：
+
+AI评分
+自动选优
+鼠标拖拽
+多显示器
+WebGL
+GPU
+Filmstrip
+时间轴
+云同步
+
+只实现：
+
+快速筛片工作流。
+核心设计原则
+
+所有操作：
+
+必须：
+
+即时
+稳定
+无卡顿
+无需确认
+目标效果
+
+摄影师：
+
+只需要：
+
+右手：
+← → Space X C
+
+左手：
+Tab ESC
+
+即可完成：
+
+90%筛片工作。
+
+1. Auto Advance（核心）
+
+这是：
+
+本 Task 最重要功能。
+
+行为规则
+
+当前：
+
+用户：
+
+Space
+
+标星后：
+
+自动：
+
+切换到下一张
+
+同样：
+
+X
+
+Reject 后：
+
+自动：
+
+下一张
+Compare Mode
+
+同样适用。
+
+当前阶段：
+
+禁止：
+
+设置项。
+
+直接固定行为。
+
+2. Smart Next Selection
+
+新增：
+
+智能下一张逻辑。
+普通模式
+
+Space / X 后：
+
+优先：
+
+下一张未处理照片
+
+定义：
+
+star_rating == 0
+AND is_rejected == false
+
+如果不存在：
+
+则：
+
+下一张普通照片
+3. Compare Mode智能推进
+
+这是重点。
+
+Compare Mode：
+
+当前：
+
+A vs B
+
+如果：
+
+A 被 reject
+
+自动：
+
+B vs C
+
+如果：
+
+A 被 star
+
+同样：
+
+B vs C
+
+目标：
+
+实现：
+
+连拍快速淘汰流。
+4. Auto Skip Rejected（普通模式）
+
+普通浏览：
+
+默认：
+
+自动跳过 reject 照片。
+Arrow Navigation
+
+← →
+
+导航时：
+
+跳过：
+
+is_rejected == true
+当前阶段：
+
+不要设置项。
+
+固定启用。
+
+5. Reject Filter特殊规则
+
+如果：
+
+当前：
+
+filterMode == rejected
+
+则：
+
+不能跳过 reject。
+
+6. Compare Mode Active State
+
+Compare Mode：
+
+顶部新增：
+
+ACTIVE: LEFT
+ACTIVE: RIGHT
+7. Status Overlay
+
+新增：
+
+轻量级状态提示。
+
+Star
+
+按：
+
+Space
+
+显示：
+
+★ PICKED
+
+持续：
+
+500ms。
+
+Reject
+
+按：
+
+X
+
+显示：
+
+✕ REJECTED
+
+持续：
+
+500ms。
+
+要求
+不要 toast
+不要动画
+不要第三方库
+
+只允许：
+
+简单 overlay。
+
+8. Keyboard Priority
+
+要求：
+
+Compare Mode：
+
+优先级最高。
+
+即：
+
+进入 Compare Mode 后：
+
+普通 grid keyboard：
+
+必须彻底失效。
+
+9. Full Keyboard Safety
+
+必须处理：
+
+输入框聚焦
+modal
+compare mode
+grid mode
+
+快捷键不能冲突。
+
+10. Compare Exit Safety
+
+如果：
+
+当前 duplicate group：
+
+只剩：
+
+1 张非 reject。
+
+自动：
+
+退出 Compare Mode
+
+恢复普通浏览。
+
+11. Compare Auto Cleanup
+
+如果：
+
+duplicate group：
+
+全部：
+
+is_duplicate == false
+
+或者：
+
+只剩单张。
+
+自动退出。
+
+12. UI性能要求
+
+禁止：
+
+重新加载整个 grid
+全量 rerender
+大规模 state 更新
+
+必须：
+
+只更新必要组件。
+
+13. README要求
+
+新增：
+
+cull workflow
+auto advance logic
+smart next selection
+compare progression
+reject skip rules
+state priority
+known limitations
+当前阶段禁止
+
+禁止：
+
+AI自动选优
+自动最佳图推荐
+多图 compare
+时间轴
+Filmstrip
+GPU
+WebGL
+鼠标缩放同步
+云同步
+
+只完成：
+
+第一版职业摄影 Cull Workflow。
+Task 14：Performance & Stability Pass（第一轮性能稳定性改造）
+
+禁止实现其他功能。
+
+严格按以下要求开发。
+
+当前目标
+
+针对：
+
+5000~20000 张照片
+
+进行：
+
+第一轮稳定性优化。
+当前阶段禁止
+
+禁止：
+
+新 AI 功能
+新 UI
+新筛选
+GPU
+WebGL
+云同步
+多线程 AI
+自动评分
+
+只允许：
+
+性能稳定性优化。
+1. Thumbnail Lazy Loading（核心）
+
+当前：
+
+缩略图虽然是 react-window。
+
+但：
+
+图片组件：
+
+仍可能提前加载。
+
+要求
+
+实现：
+
+真正 Lazy Load。
+ImageCard
+
+缩略图：
+
+只有：
+
+进入 viewport 附近
+
+才允许加载。
+
+要求
+
+使用：
+
+IntersectionObserver
+
+实现。
+
+当前阶段禁止
+
+禁止：
+
+第三方 lazy-load 库。
+
+2. Fullsize Preview Memory Safety
+
+当前：
+
+FullsizePreview：
+
+可能持续保留大图引用。
+
+要求
+
+切换照片时：
+
+必须：
+
+立即释放旧 image object
+必须处理
+Compare Mode
+普通模式
+快速切图
+3. Prevent Full Grid Rerender（重点）
+
+当前：
+
+标星 / reject：
+
+可能导致：
+
+整个 grid rerender。
+
+要求
+
+实现：
+
+精准局部更新。
+要求
+
+使用：
+
+React.memo
+useMemo
+useCallback
+
+优化。
+
+目标
+Space / X
+
+连续高速操作：
+
+不能明显掉帧。
+
+4. Stable Keyboard Listener
+
+当前：
+
+keyboard listener：
+
+可能重复注册。
+
+要求
+
+统一：
+
+single global keyboard manager
+要求
+
+避免：
+
+listener 泄漏
+重复绑定
+stale closure
+5. Image Decode Optimization
+
+当前：
+
+浏览器：
+
+可能同步 decode 大图。
+
+要求
+
+缩略图：
+
+使用：
+
+img.decoding = "async"
+FullsizePreview
+
+使用：
+
+loading="eager"
+decoding="async"
+6. Scroll Stability
+
+当前：
+
+大量更新时：
+
+可能：
+
+scroll jump。
+
+要求
+
+标星 / reject / compare：
+
+不能导致：
+
+grid scroll position reset
+7. Compare Mode Preload（重点）
+
+Compare Mode：
+
+当前：
+
+切换：
+
+A vs B
+↓
+B vs C
+
+可能闪白。
+
+要求
+
+提前预加载：
+
+next compare pair
+当前阶段禁止
+
+禁止：
+
+复杂缓存系统。
+
+只允许：
+
+轻量 preload。
+
+8. Thumbnail Cache Validation
+
+当前：
+
+缩略图缓存：
+
+可能失效。
+
+要求
+
+新增：
+
+文件修改时间验证。
+规则
+
+如果：
+
+原图 mtime > thumbnail mtime
+
+自动重新生成。
+
+9. Database Batch Optimization
+
+当前：
+
+大量状态更新：
+
+可能频繁 commit。
+
+要求
+
+增加：
+
+batch transaction support
+当前阶段：
+
+只要求：
+
+Repository 层支持。
+
+不需要复杂 queue。
+
+10. Logging Cleanup
+
+当前：
+
+logs 可能无限增长。
+
+要求
+
+实现：
+
+rotating log。
+要求
+
+最大：
+
+10MB × 5 files
+11. Error Boundary
+
+新增：
+
+React Error Boundary。
+要求
+
+任何组件崩溃：
+
+不能导致：
+
+整个 App 白屏。
+
+当前阶段：
+
+简单 fallback UI 即可。
+
+12. Compare Mode Stability
+
+必须处理：
+
+compare 时快速连续按键
+当前 active photo 消失
+duplicate group 更新
+preload image 失败
+
+不能崩溃。
+
+13. Performance Debug Overlay（开发模式）
+
+仅：
+
+NODE_ENV=development
+
+显示。
+
+显示：
+rendered ImageCard count
+current loaded thumbnails
+compare preload count
+keyboard listener count
+当前阶段：
+
+禁止：
+
+复杂 profiler。
+
+14. README要求
+
+新增：
+
+lazy load strategy
+rerender optimization
+preload strategy
+keyboard manager
+memory safety
+log rotation
+current scalability limits
+当前阶段禁止
+
+禁止：
+
+新 AI
+新 UI
+GPU
+WebGL
+worker threads
+timeline
+filmstrip
+cloud sync
+AI auto selection
+
+只完成：
+
+第一轮专业摄影软件性能稳定性改造。
+Task 15：AI Suggestion Layer（AI建议层）
+
+禁止实现其他功能。
+
+严格按以下要求开发。
+
+核心目标
+
+当前：
+
+软件：
+
+已经具备：
+
+blur detection
+duplicate grouping
+star / reject
+compare workflow
+
+现在：
+
+开始增加：
+
+AI辅助建议。
+
+但：
+
+禁止：
+
+AI自动决定。
+
+当前阶段核心原则
+
+AI：
+
+只能：
+
+Suggest
+Never Decide
+当前阶段禁止
+
+禁止：
+
+自动打星
+自动 reject
+自动删除
+AI 最佳图自动选择
+AI 排序重排
+AI 修改用户结果
+深度学习模型
+GPU
+
+只允许：
+
+AI Suggestion。
+1. Suggestion System Architecture
+
+新增：
+
+backend/ai/suggestions/
+模块结构
+
+必须包含：
+
+models.py
+service.py
+rules.py
+README.md
+当前阶段：
+
+禁止：
+
+复杂 AI pipeline。
+
+只允许：
+
+Rule-based。
+
+2. Suggestion Types（第一版）
+
+当前阶段：
+
+只允许：
+
+三种 Suggestion。
+A. Possible Blur
+
+规则：
+
+is_blur == true
+
+生成：
+
+POSSIBLE_BLUR
+B. Possible Duplicate
+
+规则：
+
+duplicate_group != null
+
+生成：
+
+POSSIBLE_DUPLICATE
+C. Possible Best Shot
+
+规则：
+
+同 duplicate group 中：
+
+blur_score 最大
+AND not rejected
+
+生成：
+
+POSSIBLE_BEST
+注意
+
+这不是：
+
+AI最终判断。
+
+只是：
+
+Suggestion。
+3. Database Extension
+
+photos 表新增：
+
+ai_suggestion TEXT
+当前阶段：
+
+只允许：
+
+单 suggestion。
+
+禁止：
+
+数组 JSON。
+
+4. Suggestion Generation Workflow
+
+新增：
+
+POST /api/ai/generate-suggestions
+行为
+
+遍历：
+
+所有照片。
+
+根据 rules.py：
+
+生成 suggestion。
+
+写入数据库。
+
+当前阶段：
+
+必须：
+
+幂等。
+
+重复运行：
+
+必须覆盖旧 suggestion。
+
+5. UI Badge
+
+ImageCard：
+
+新增 suggestion badge。
+
+Badge规则
+
+Possible Blur：
+
+AI: BLUR
+
+Possible Duplicate：
+
+AI: DUP
+
+Possible Best：
+
+AI: BEST
+当前阶段：
+
+禁止：
+
+彩色复杂 UI。
+
+统一：
+
+灰色 badge。
+
+6. Detail Panel
+
+新增：
+
+AI Suggestion
+
+字段。
+
+显示：
+Possible Blur
+Possible Duplicate
+Possible Best Shot
+7. Compare Mode Integration（重点）
+
+Compare Mode：
+
+如果：
+
+当前：
+
+left/right
+
+存在：
+
+POSSIBLE_BEST
+Header显示：
+AI Suggested
+当前阶段：
+
+禁止：
+
+自动切换 active。
+
+8. Suggestion Filter
+
+新增：
+
+顶部筛选：
+
+[AI Suggestions]
+行为
+
+显示：
+
+所有：
+
+ai_suggestion != null
+
+照片。
+
+9. Suggestion Safety
+
+如果：
+
+用户：
+
+手动 reject
+手动取消 duplicate
+blur 重跑
+duplicate 重跑
+
+Suggestion：
+
+必须：
+
+自动失效。
+当前阶段：
+
+允许：
+
+简单实现：
+
+重新 generate suggestions
+
+即可。
+
+10. Performance Requirement
+
+生成 suggestions：
+
+不能：
+
+一次性加载全部图片进内存。
+
+必须：
+
+分页 / streaming。
+
+11. Keyboard Workflow
+
+新增：
+
+A
+行为
+
+当前照片：
+
+如果：
+
+存在 suggestion。
+
+按：
+
+A
+
+则：
+
+Accept Suggestion
+Accept规则
+POSSIBLE_BLUR
+
+执行：
+
+Reject
+POSSIBLE_DUPLICATE
+
+不做任何事。
+
+当前阶段：
+
+只显示建议。
+
+POSSIBLE_BEST
+
+执行：
+
+Star
+当前阶段：
+
+禁止：
+
+复杂确认。
+
+12. Overlay
+
+按：
+
+A
+
+显示：
+
+AI ACCEPTED
+
+500ms。
+
+13. README要求
+
+新增：
+
+suggestion philosophy
+rule-based system
+current rules
+suggestion safety
+compare integration
+future AI expansion
+当前阶段禁止
+
+禁止：
+
+自动筛选
+AI 自动决策
+深度学习
+GPU
+云 AI
+自动排序
+自动最佳图
+自动 reject
+
+只完成：
+
+第一版 AI Assisted Culling。
+Task 16：Professional Export Workflow（职业摄影导出工作流）
+
+禁止实现其他功能。
+
+严格按以下要求开发。
+
+核心目标
+
+摄影师：
+
+完成：
+
+Cull
+Compare
+Pick
+Reject
+
+之后：
+
+能够：
+
+真正导出结果。
+当前阶段禁止
+
+禁止：
+
+RAW导出
+AI修图
+Lightroom插件
+云同步
+WebDAV
+NAS
+GPU
+WebGL
+
+只实现：
+
+第一版职业导出工作流。
+1. Export Architecture
+
+新增：
+
+backend/exporter/
+必须包含
+models.py
+service.py
+utils.py
+README.md
+当前阶段：
+
+禁止：
+
+复杂任务队列。
+
+2. Export Modes（重点）
+
+当前阶段：
+
+只允许：
+
+三种导出模式。
+A. Export Picked
+
+导出：
+
+star_rating == 1
+AND is_rejected == false
+B. Export Rejected
+
+导出：
+
+is_rejected == true
+C. Export Current Filter
+
+导出：
+
+当前：
+
+filterMode
+
+中的所有照片。
+
+3. Export Format（当前阶段）
+
+当前阶段：
+
+只允许：
+
+Copy Original Files。
+禁止
+resize
+watermark
+rename template
+jpeg recompress
+
+只允许：
+
+原文件复制
+4. Export Folder Structure
+
+导出目录：
+
+{target}/
+    Picked/
+    Rejected/
+    Suggested/
+当前阶段：
+
+根据 export mode：
+
+只创建对应目录。
+
+5. Duplicate Filename Safety
+
+必须处理：
+
+同名文件。
+规则
+
+如果：
+
+目标目录：
+
+已经存在：
+
+IMG_0001.JPG
+
+则：
+
+自动：
+
+IMG_0001_1.JPG
+6. Export Progress
+
+新增：
+
+Export Progress Overlay。
+显示：
+Exporting...
+123 / 582
+当前阶段：
+
+禁止：
+
+复杂动画。
+
+7. Cancel Export（重点）
+
+新增：
+
+Cancel Export。
+要求
+
+用户：
+
+导出过程中：
+
+点击：
+
+Cancel
+
+必须：
+
+立即停止。
+当前阶段：
+
+允许：
+
+简单 cooperative cancel。
+
+8. Export Safety
+
+必须：
+
+单文件失败不终止整个导出
+权限错误继续
+路径不存在自动创建
+超长路径错误记录
+9. Export Summary
+
+导出完成：
+
+显示：
+
+Export Complete
+
+Succeeded: 582
+Failed: 3
+Skipped: 12
+Duration: 01:22
+10. Export Logging
+
+新增：
+
+logs/export.log
+必须记录
+export start
+export cancel
+export complete
+file errors
+11. Keyboard Workflow
+
+新增：
+
+E
+行为
+
+快速打开：
+
+Export Dialog。
+当前阶段：
+
+允许：
+
+原生系统目录选择器。
+
+12. Export Dialog（当前阶段）
+
+必须包含：
+
+Export Mode
+Target Folder
+Estimated Count
+Start Export
+Cancel
+当前阶段：
+
+禁止：
+
+复杂 UI。
+
+13. Compare Mode Compatibility
+
+Compare Mode：
+
+允许：
+
+直接：
+
+E
+
+导出：
+
+当前 duplicate group。
+
+导出目录：
+CompareExport/
+14. Performance Requirement
+
+导出：
+
+必须：
+
+streaming。
+禁止：
+
+一次性读取全部文件。
+
+15. README要求
+
+新增：
+
+export workflow
+export modes
+cancel architecture
+duplicate filename safety
+export logging
+compare export
+future RAW export roadmap
+当前阶段禁止
+
+禁止：
+
+RAW处理
+图片转码
+AI修图
+水印
+Lightroom同步
+云同步
+NAS
+GPU
+多线程导出
+
+只完成：
+
+第一版职业摄影导出工作流。
+Task 17
+
+目标：
+
+把当前版本提升到可交付给摄影师测试的 Beta 版本。
+
+禁止新增 AI 功能。
+
+禁止新增复杂业务功能。
+
+只做产品可用性优化。
+
+实现以下内容：
+
+1
+
+首次启动欢迎页
+
+数据库为空时显示：
+
+PhotoFlow Beta
+
+摄影师 AI 选片工具
+
+第一步：
+
+点击【导入照片目录】
+
+开始导入照片
+
+不要显示空白界面。
+
+2
+
+导入完成提示
+
+导入成功后显示：
+
+已导入：
+
+xxx 张照片
+
+缩略图：
+
+xxx 张
+
+耗时：
+
+xx 秒
+
+点击关闭
+
+不要只显示状态文字。
+
+3
+
+删除数据库功能
+
+设置菜单新增：
+
+清空图库
+
+执行：
+
+删除所有照片记录
+
+保留缩略图缓存
+
+二次确认弹窗：
+
+确定清空图库？
+
+此操作不可撤销。
+
+4
+
+重新生成缩略图
+
+菜单新增：
+
+重新生成缩略图
+
+执行：
+
+删除 cache/thumbnails
+
+重新生成
+
+用于测试和修复缓存问题。
+
+5
+
+日志查看器
+
+新增：
+
+帮助 → 打开日志目录
+
+直接打开：
+
+logs/
+
+方便用户反馈问题。
+
+6
+
+关于页面
+
+新增：
+
+About PhotoFlow
+
+显示：
+
+PhotoFlow Beta
+
+Version 0.1
+
+Built with:
+
+Electron
+
+React
+
+FastAPI
+
+SQLite
+
+7
+
+错误提示统一
+
+所有异常统一弹窗：
+
+操作失败
+
+原因：
+
+xxxx
+
+不要打印堆栈。
+
+堆栈写日志。
+
+用户只看友好提示。
+
+8
+
+导入性能统计
+
+导入结束记录：
+
+扫描耗时
+
+缩略图耗时
+
+数据库耗时
+
+总耗时
+
+写入 import.log
+
+以后优化性能需要。
+
+要求：
+
+不要新增 AI。
+
+不要修改数据库结构。
+
+不要修改已有工作流。
+
+不要影响现有功能。
+
+完成后运行：
+
+TypeScript
+
+Vite
+
+Python Tests
+
+全部通过。
+
+完成 Task 17 后，不要继续开发 Task 18。
+
+先生成：
+
+Beta 测试清单。
+
+这是我建议的下一步。
+
+你现在最缺的不是功能，而是一个能拿给摄影师实际使用并收集反馈的 Beta 版本。
+
+等 Task 17 完成后，把 Claude 的实现总结发给我，我再给你下一阶段路线。届时我们会开始做：
+
+真实摄影师测试计划 + 第一批种子用户获取方案。

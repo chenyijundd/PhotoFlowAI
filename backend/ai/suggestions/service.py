@@ -10,7 +10,7 @@ from typing import Optional
 
 from database.repository import PhotoRepository
 from .models import SuggestionResult
-from .rules import evaluate_suggestion, compute_best_in_groups
+from .rules import evaluate_suggestion
 
 logger = logging.getLogger("photoflow")
 
@@ -54,9 +54,6 @@ def generate_suggestions(
             "suggestion_counts": {},
         }
 
-    # Compute best-in-group set (applies to all photos for context)
-    best_in_group = compute_best_in_groups(all_photos)
-
     # Evaluate suggestions in batches
     suggestion_counts: dict[str, int] = {}
     updates = []
@@ -66,7 +63,7 @@ def generate_suggestions(
         batch = all_photos[i : i + BATCH_SIZE]
 
         for photo in batch:
-            suggestion = evaluate_suggestion(photo, best_in_group)
+            suggestion = evaluate_suggestion(photo)
             processed += 1
 
             if suggestion:

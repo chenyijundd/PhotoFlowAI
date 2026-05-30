@@ -2,17 +2,19 @@
 PhotoFlow AI - AI API Service
 
 Endpoints for AI-based photo analysis (blur detection, duplicate detection, etc.).
+
+All detection tasks run in background threads. The start endpoint returns a
+task_id immediately, and the frontend polls GET /api/ai/{type}-progress/{id}.
 """
 
 import logging
-import os
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from backend.ai.blur_detector.models import BlurDetectRequest, BlurDetectResponse
-from backend.ai.blur_detector.service import run_blur_detection
-from backend.ai.duplicate_detector.models import DuplicateDetectRequest, DuplicateDetectResponse
-from backend.ai.duplicate_detector.service import run_duplicate_detection
+from backend.ai.blur_detector.models import BlurDetectRequest
+from backend.ai.blur_detector.service import start_blur_detection, get_blur_progress, cancel_blur_detection
+from backend.ai.duplicate_detector.service import start_duplicate_detection, get_duplicate_progress, cancel_duplicate_detection
 from backend.ai.suggestions.models import GenerateSuggestionsRequest, GenerateSuggestionsResponse
 from backend.ai.suggestions.service import generate_suggestions
 from database.repository import PhotoRepository
@@ -21,68 +23,129 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# Log file paths
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "logs",
-)
-BLUR_LOG_PATH = os.path.join(LOG_DIR, "blur_detection.log")
-DUPLICATE_LOG_PATH = os.path.join(LOG_DIR, "duplicate_detection.log")
+
+# ---- Response models ----
+
+class TaskStartResponse(BaseModel):
+    task_id: str
+    total: int
 
 
-@router.post("/blur-detect", response_model=BlurDetectResponse)
-async def blur_detect(body: BlurDetectRequest):
-    """Run blur detection on specified photo IDs, or all photos if not specified."""
+class ProgressResponse(BaseModel):
+    task_id: str
+    status: str  # "running" | "completed" | "cancelled" | "error"
+    phase: str
+    total: int
+    progress: int
+    current_file: str
+    # Blur-specific
+    blurred: int = 0
+    # Duplicate-specific
+    duplicate_groups: int = 0
+    duplicate_count: int = 0
+    failed: int = 0
+
+
+# ---- Blur Detection ----
+
+@router.post("/blur-detect", response_model=TaskStartResponse)
+async def blur_detect_start(body: BlurDetectRequest):
+    """Start blur detection in background. Returns task_id for polling."""
     try:
         repo = PhotoRepository()
-        # If no photo_ids provided, process ALL photos in the database
         photo_ids = body.photo_ids
         if not photo_ids:
             all_photos = repo.get_all_photos()
             photo_ids = [p.image_id for p in all_photos]
 
         if not photo_ids:
-            return BlurDetectResponse(processed=0, blurred=0)
+            return TaskStartResponse(task_id="", total=0)
 
-        processed, blurred = run_blur_detection(
-            photo_ids,
-            repo,
-            log_path=BLUR_LOG_PATH,
-        )
-        return BlurDetectResponse(processed=processed, blurred=blurred)
+        task_id = start_blur_detection(photo_ids)
+        return TaskStartResponse(task_id=task_id, total=len(photo_ids))
     except Exception as exc:
-        logger.error("Blur detection failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Blur detection failed")
+        logger.error("Blur detection start failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Blur detection start failed")
 
 
-@router.post("/duplicate-detect", response_model=DuplicateDetectResponse)
-async def duplicate_detect(body: DuplicateDetectRequest):
-    """Run duplicate detection on specified photo IDs, or all photos if not specified."""
+@router.get("/blur-progress/{task_id}", response_model=ProgressResponse)
+async def blur_detect_progress(task_id: str):
+    """Poll blur detection progress."""
+    state = get_blur_progress(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return ProgressResponse(
+        task_id=state["task_id"],
+        status=state["status"],
+        phase=state.get("phase", ""),
+        total=state.get("total", 0),
+        progress=state.get("progress", 0),
+        current_file=state.get("current_file", ""),
+        blurred=state.get("blurred", 0),
+        failed=state.get("failed", 0),
+    )
+
+
+@router.post("/blur-cancel/{task_id}")
+async def blur_detect_cancel(task_id: str):
+    """Cancel a running blur detection task."""
+    ok = cancel_blur_detection(task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Task not found or already completed")
+    return {"status": "cancelled"}
+
+
+# ---- Duplicate Detection ----
+
+@router.post("/duplicate-detect", response_model=TaskStartResponse)
+async def duplicate_detect_start(body: BlurDetectRequest):
+    """Start duplicate detection in background. Returns task_id for polling."""
     try:
         repo = PhotoRepository()
-        # If no photo_ids provided, process ALL photos in the database
         photo_ids = body.photo_ids
         if not photo_ids:
             all_photos = repo.get_all_photos()
             photo_ids = [p.image_id for p in all_photos]
 
         if not photo_ids:
-            return DuplicateDetectResponse(processed=0, duplicate_groups=0, duplicates=0)
+            return TaskStartResponse(task_id="", total=0)
 
-        processed, duplicate_groups, duplicates = run_duplicate_detection(
-            photo_ids,
-            repo,
-            log_path=DUPLICATE_LOG_PATH,
-        )
-        return DuplicateDetectResponse(
-            processed=processed,
-            duplicate_groups=duplicate_groups,
-            duplicates=duplicates,
-        )
+        task_id = start_duplicate_detection(photo_ids)
+        return TaskStartResponse(task_id=task_id, total=len(photo_ids))
     except Exception as exc:
-        logger.error("Duplicate detection failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Duplicate detection failed")
+        logger.error("Duplicate detection start failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Duplicate detection start failed")
 
+
+@router.get("/duplicate-progress/{task_id}", response_model=ProgressResponse)
+async def duplicate_detect_progress(task_id: str):
+    """Poll duplicate detection progress."""
+    state = get_duplicate_progress(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return ProgressResponse(
+        task_id=state["task_id"],
+        status=state["status"],
+        phase=state.get("phase", ""),
+        total=state.get("total", 0),
+        progress=state.get("progress", 0),
+        current_file=state.get("current_file", ""),
+        duplicate_groups=state.get("duplicate_groups", 0),
+        duplicate_count=state.get("duplicate_count", 0),
+        failed=state.get("failed", 0),
+    )
+
+
+@router.post("/duplicate-cancel/{task_id}")
+async def duplicate_detect_cancel(task_id: str):
+    """Cancel a running duplicate detection task."""
+    ok = cancel_duplicate_detection(task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Task not found or already completed")
+    return {"status": "cancelled"}
+
+
+# ---- AI Suggestions ----
 
 @router.post("/generate-suggestions", response_model=GenerateSuggestionsResponse)
 async def generate_ai_suggestions(body: GenerateSuggestionsRequest = GenerateSuggestionsRequest()):

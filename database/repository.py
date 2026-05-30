@@ -315,6 +315,14 @@ class PhotoRepository:
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
+    def get_blur_count(self) -> int:
+        """Return the count of photos with is_blur == 1."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE is_blur = 1"
+            ).fetchone()
+            return row[0] if row else 0
+
     def get_rejected_count(self) -> int:
         """Return the count of photos with is_rejected == 1."""
         with self._get_conn() as conn:

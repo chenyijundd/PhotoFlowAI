@@ -16,11 +16,12 @@
  *   - Stable callback via ref to avoid stale closures
  */
 
-import { useEffect, useCallback, useMemo, useState, useRef } from "react";
+import { useEffect, useCallback, useMemo, useRef } from "react";
 import type { PhotoInfo, PhotoFilterMode } from "../../types";
 import { useKeyboardHandler, KEY_PRIORITY } from "./useKeyboardManager";
 
-export type ZoomMode = "fit" | "zoom100";
+// ZoomMode type is now in types/index.ts — kept export for backward compat
+export type { ZoomMode } from "../../types";
 
 interface UseKeyboardNavigationProps {
   photos: PhotoInfo[];
@@ -34,8 +35,6 @@ interface UseKeyboardNavigationProps {
 }
 
 interface UseKeyboardNavigationResult {
-  zoomMode: ZoomMode;
-  setZoomMode: (mode: ZoomMode) => void;
   selectedIndex: number;
 }
 
@@ -91,8 +90,6 @@ export function useKeyboardNavigation({
   active,
   filterMode,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationResult {
-  const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
-
   // Current index of selected photo in the photos array
   const selectedIndex = useMemo(() => {
     if (!selectedId) return -1;
@@ -163,11 +160,6 @@ export function useKeyboardNavigation({
           }
           return true;
         }
-        case "Enter": {
-          e.preventDefault();
-          setZoomMode((prev) => (prev === "fit" ? "zoom100" : "fit"));
-          return true;
-        }
         case "Home": {
           e.preventDefault();
           const firstIdx = findNextNonRejectedIndex(p, -1, 1, skipRejectedRef.current);
@@ -204,7 +196,7 @@ export function useKeyboardNavigation({
     }
   }, [selectedIndex, scrollToIndex]);
 
-  return { zoomMode, setZoomMode, selectedIndex };
+  return { selectedIndex };
 }
 
 /**

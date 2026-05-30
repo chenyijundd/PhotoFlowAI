@@ -2,15 +2,17 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import ImageGrid from "../components/ImageGrid";
 import DetailPanel from "../components/DetailPanel";
 import ComparePage from "../components/ComparePage";
+import LightboxPage from "../components/LightboxPage";
 import StatusOverlay from "../components/StatusOverlay";
 import type { StatusType } from "../components/StatusOverlay";
 import { usePhotos } from "../hooks/usePhotos";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useCompareMode } from "../context/CompareModeContext";
+import { useLightboxMode } from "../context/LightboxModeContext";
 import { useKeyboardNavigation, findNextUnprocessed } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
-import { updateStarRating, fetchStarredCount, runBlurDetection, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, fetchDuplicateCount, generateSuggestions, fetchSuggestedCount } from "../api/photoApi";
-import type { ImportResponse, PhotoFilterMode, BlurDetectResponse, DuplicateDetectResponse, GenerateSuggestionsResponse } from "../../types";
+import { updateStarRating, fetchStarredCount, fetchBlurCount, runBlurDetection, blurProgress, blurCancel, updateRejectStatus, fetchRejectedCount, runDuplicateDetection, duplicateProgress, duplicateCancel, fetchDuplicateCount, generateSuggestions, fetchSuggestedCount } from "../api/photoApi";
+import type { ImportResponse, PhotoFilterMode, GenerateSuggestionsResponse, DetectionProgressResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
 import type { ExportMode } from "../../types";
@@ -26,6 +28,8 @@ const BrowserPage: React.FC = () => {
   const [rejectedCount, setRejectedCount] = useState(0);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [suggestedCount, setSuggestedCount] = useState(0);
+  const [blurCount, setBlurCount] = useState(0);
+  const [allCount, setAllCount] = useState(0);
 
   const {
     photos,
@@ -41,13 +45,13 @@ const BrowserPage: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
 
-  // Blur detection state
-  const [detecting, setDetecting] = useState(false);
+  // Detection progress state (shared for both blur and duplicate)
+  const [detectType, setDetectType] = useState<"blur" | "duplicate" | null>(null);
+  const [detectPhase, setDetectPhase] = useState("");
+  const [detectProgress, setDetectProgress] = useState(0);
+  const [detectTotal, setDetectTotal] = useState(0);
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
-
-  // Duplicate detection state
-  const [detectingDup, setDetectingDup] = useState(false);
-  const [detectDupMsg, setDetectDupMsg] = useState<string | null>(null);
+  const detectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Detail panel refresh trigger for star rating changes
   const [detailRefreshKey, setDetailRefreshKey] = useState(0);
@@ -65,6 +69,12 @@ const BrowserPage: React.FC = () => {
     exitCompareMode,
     setOnStatus,
   } = useCompareMode();
+
+  // Lightbox mode
+  const {
+    isLightboxMode,
+    enterLightbox,
+  } = useLightboxMode();
 
   // Register status overlay callback with compare mode context
   useEffect(() => {
@@ -120,12 +130,23 @@ const BrowserPage: React.FC = () => {
     }
   }, []);
 
+  // Fetch blur count
+  const loadBlurCount = useCallback(async () => {
+    try {
+      const res = await fetchBlurCount();
+      setBlurCount(res.count);
+    } catch {
+      // silently ignore
+    }
+  }, []);
+
   useEffect(() => {
     loadStarredCount();
     loadRejectedCount();
     loadDuplicateCount();
     loadSuggestedCount();
-  }, [loadStarredCount, loadRejectedCount, loadDuplicateCount, loadSuggestedCount]);
+    loadBlurCount();
+  }, [loadStarredCount, loadRejectedCount, loadDuplicateCount, loadSuggestedCount, loadBlurCount]);
 
   /**
    * Compute the next photo to select after a star/reject action.
@@ -214,6 +235,13 @@ const BrowserPage: React.FC = () => {
     }
   }, [refresh, getNextIdAfterAction, selectPhoto, loadRejectedCount]);
 
+  // Sync allCount when viewing all photos
+  useEffect(() => {
+    if (filterMode === "all" && total > 0) {
+      setAllCount(total);
+    }
+  }, [filterMode, total]);
+
   // When filter switches, select first photo once data for the new mode arrives.
   const pendingFilterRef = useRef<PhotoFilterMode | null>(null);
   const prevFilterRef = useRef<PhotoFilterMode>(filterMode);
@@ -234,7 +262,7 @@ const BrowserPage: React.FC = () => {
   }, []);
 
   // Keyboard navigation hook (uses centralized keyboard manager internally)
-  const { zoomMode } = useKeyboardNavigation({
+  useKeyboardNavigation({
     photos,
     selectedId,
     selectPhoto,
@@ -274,6 +302,35 @@ const BrowserPage: React.FC = () => {
 
   useKeyboardHandler("app-compare-trigger", handleCKey, KEY_PRIORITY.APP, !isCompareMode);
 
+  // 'Enter' key — enter Lightbox mode
+  const enterLightboxRef = useRef(enterLightbox);
+  enterLightboxRef.current = enterLightbox;
+  const isLightboxModeRef = useRef(isLightboxMode);
+  isLightboxModeRef.current = isLightboxMode;
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+
+  const handleEnterKey = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+
+      if (e.key === "Enter") {
+        const p = photosRef.current;
+        const idx = p.findIndex((ph) => ph.image_id === selectedPhotoRef.current?.image_id);
+        if (idx >= 0 && !isCompareModeRef.current && !isLightboxModeRef.current) {
+          e.preventDefault();
+          enterLightboxRef.current(p, idx);
+          return true;
+        }
+      }
+      return false;
+    },
+    [],
+  );
+
+  useKeyboardHandler("enter-lightbox", handleEnterKey, KEY_PRIORITY.GRID, !isCompareMode && !isLightboxMode);
+
   // When exiting compare mode, refresh grid and counts
   const prevCompareRef = useRef(isCompareMode);
   useEffect(() => {
@@ -283,10 +340,26 @@ const BrowserPage: React.FC = () => {
       loadRejectedCount();
       loadDuplicateCount();
       loadSuggestedCount();
+      loadBlurCount();
     }
     prevCompareRef.current = isCompareMode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompareMode]);
+
+  // When exiting lightbox mode, refresh grid and counts
+  const prevLightboxRef = useRef(isLightboxMode);
+  useEffect(() => {
+    if (prevLightboxRef.current === true && isLightboxMode === false) {
+      refresh();
+      loadStarredCount();
+      loadRejectedCount();
+      loadDuplicateCount();
+      loadSuggestedCount();
+      loadBlurCount();
+    }
+    prevLightboxRef.current = isLightboxMode;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLightboxMode]);
 
   const handleImport = useCallback(async () => {
     if (!window.electronAPI) {
@@ -308,50 +381,88 @@ const BrowserPage: React.FC = () => {
       }
       refresh();
       loadStarredCount();
+      loadBlurCount();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "导入失败";
       setImportMsg(msg);
     } finally {
       setImporting(false);
     }
-  }, [refresh, loadStarredCount]);
+  }, [refresh, loadStarredCount, loadBlurCount]);
 
-  // Duplicate detection handler
+  // Duplicate detection handler (async with progress polling)
   const handleDuplicateDetect = useCallback(async () => {
-    setDetectingDup(true);
-    setDetectDupMsg(null);
+    setDetectType("duplicate");
+    setDetectMsg(null);
+    setDetectPhase("正在检测重复照片");
+    setDetectProgress(0);
+    setDetectTotal(0);
     try {
-      const result: DuplicateDetectResponse = await runDuplicateDetection([]);
-      setDetectDupMsg(`重复检测完成：共 ${result.duplicate_groups} 组，${result.duplicates} 张重复照片`);
-      loadDuplicateCount();
-      // Suggestion safety: regenerate after duplicate detection
-      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-      // Note: no refresh() — grid stays at current scroll position
+      const started = await runDuplicateDetection([]);
+      if (!started.task_id) { setDetectType(null); return; }
+      setDetectTotal(started.total);
+
+      detectPollRef.current = setInterval(async () => {
+        try {
+          const p: DetectionProgressResponse = await duplicateProgress(started.task_id);
+          setDetectPhase(p.phase);
+          setDetectProgress(p.progress);
+          if (p.status !== "running") {
+            if (detectPollRef.current) clearInterval(detectPollRef.current);
+            detectPollRef.current = null;
+            setDetectType(null);
+            if (p.status === "completed") {
+              setDetectMsg(`重复检测完成：共 ${p.duplicate_groups} 组，${p.duplicate_count} 张重复照片`);
+              loadDuplicateCount();
+              generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
+            } else if (p.status === "cancelled") {
+              setDetectMsg("检测已取消");
+            }
+          }
+        } catch { /* poll retry */ }
+      }, 400);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "重复检测失败";
-      setDetectDupMsg(msg);
-    } finally {
-      setDetectingDup(false);
+      setDetectType(null);
+      setDetectMsg(err instanceof Error ? err.message : "重复检测失败");
     }
   }, [loadDuplicateCount, loadSuggestedCount]);
 
-  // Blur detection handler
+  // Blur detection handler (async with progress polling)
   const handleBlurDetect = useCallback(async () => {
-    setDetecting(true);
+    setDetectType("blur");
     setDetectMsg(null);
+    setDetectPhase("正在检测模糊照片");
+    setDetectProgress(0);
+    setDetectTotal(0);
     try {
-      const result: BlurDetectResponse = await runBlurDetection([]);
-      setDetectMsg(`检测完成：已处理 ${result.processed} 张，模糊 ${result.blurred} 张`);
-      // Suggestion safety: regenerate after blur detection
-      generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
-      // Note: no refresh() — grid stays at current scroll position
+      const started = await runBlurDetection([]);
+      if (!started.task_id) { setDetectType(null); return; }
+      setDetectTotal(started.total);
+
+      detectPollRef.current = setInterval(async () => {
+        try {
+          const p: DetectionProgressResponse = await blurProgress(started.task_id);
+          setDetectPhase(p.phase);
+          setDetectProgress(p.progress);
+          if (p.status !== "running") {
+            if (detectPollRef.current) clearInterval(detectPollRef.current);
+            detectPollRef.current = null;
+            setDetectType(null);
+            if (p.status === "completed") {
+              setDetectMsg(`检测完成：已处理 ${p.progress} 张，模糊 ${p.blurred} 张`);
+              loadBlurCount();
+              generateSuggestions().then(() => loadSuggestedCount()).catch(() => {});
+            } else if (p.status === "cancelled") {
+              setDetectMsg("检测已取消");
+            }
+          }
+        } catch { /* poll retry */ }
+      }, 400);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "模糊检测失败";
-      setDetectMsg(msg);
-    } finally {
-      setDetecting(false);
+      setDetectType(null);
+      setDetectMsg(err instanceof Error ? err.message : "模糊检测失败");
     }
-  }, [loadSuggestedCount]);
+  }, [loadSuggestedCount, loadBlurCount]);
 
   // AI Suggestions generation handler
   const [generating, setGenerating] = useState(false);
@@ -475,6 +586,11 @@ const BrowserPage: React.FC = () => {
     return <ComparePage />;
   }
 
+  // ---- Lightbox Mode takes over the entire page ----
+  if (isLightboxMode) {
+    return <LightboxPage />;
+  }
+
   if (error && photos.length === 0) {
     return (
       <div className="state-screen error-state">
@@ -511,92 +627,83 @@ const BrowserPage: React.FC = () => {
               className={`filter-btn${filterMode === "all" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("all")}
             >
-              全部照片
+              全部({allCount})
             </button>
             <button
               className={`filter-btn${filterMode === "starred" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("starred")}
             >
-              已选照片
+              已选({starredCount})
             </button>
             <button
               className={`filter-btn${filterMode === "blur" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("blur")}
             >
-              模糊照片
+              模糊({blurCount})
             </button>
             <button
               className={`filter-btn${filterMode === "rejected" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("rejected")}
             >
-              废片
+              废片({rejectedCount})
             </button>
             <button
               className={`filter-btn${filterMode === "duplicate" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("duplicate")}
             >
-              重复照片
+              重复({duplicateCount})
             </button>
             <button
               className={`filter-btn${filterMode === "suggested" ? " filter-btn--active" : ""}`}
               onClick={() => setFilterMode("suggested")}
             >
-              AI Suggestions
+              AI建议({suggestedCount})
             </button>
-            <span className="filter-starred-count">
-              已选：{starredCount}
-            </span>
-            <span className="filter-rejected-count">
-              废片：{rejectedCount}
-            </span>
-            <span className="filter-duplicate-count">
-              重复：{duplicateCount}
-            </span>
-            <span className="filter-suggested-count">
-              AI：{suggestedCount}
-            </span>
           </div>
         </div>
         <div className="browser-header-right">
-          <span className="browser-count">
-            {filterMode === "starred"
-              ? (total > 0 ? `已选 ${photos.length} / ${total} 张` : "已选 0 张")
-              : filterMode === "blur"
-                ? (total > 0 ? `模糊 ${photos.length} / ${total} 张` : "模糊 0 张")
-                : filterMode === "rejected"
-                  ? (total > 0 ? `废片 ${photos.length} / ${total} 张` : "废片 0 张")
-                  : filterMode === "duplicate"
-                    ? (total > 0 ? `重复 ${photos.length} / ${total} 张` : "重复 0 张")
-                    : filterMode === "suggested"
-                      ? (total > 0 ? `AI建议 ${photos.length} / ${total} 张` : "AI建议 0 张")
-                      : (total > 0 ? `已加载 ${photos.length} / ${total} 张` : "")
-            }
-          </span>
+          {/* Detection progress bar */}
+          {detectType && detectTotal > 0 && (
+            <div className="detect-progress">
+              <span className="detect-progress-label">{detectPhase}</span>
+              <span className="detect-progress-nums">{detectProgress} / {detectTotal}</span>
+              <div className="detect-progress-bar">
+                <div
+                  className="detect-progress-fill"
+                  style={{ width: `${detectTotal > 0 ? Math.round(detectProgress / detectTotal * 100) : 0}%` }}
+                />
+              </div>
+              <span className="detect-progress-pct">
+                {detectTotal > 0 ? Math.round(detectProgress / detectTotal * 100) : 0}%
+              </span>
+            </div>
+          )}
+
           <button
             className="btn-detect"
             onClick={handleGenerateSuggestions}
-            disabled={generating}
+            disabled={generating || detectType !== null}
           >
             {generating ? "正在生成..." : "🤖 AI 建议"}
           </button>
           <button
             className="btn-detect"
             onClick={handleBlurDetect}
-            disabled={detecting}
+            disabled={detectType !== null}
           >
-            {detecting ? "正在检测..." : "🔍 检测模糊照片"}
+            {detectType === "blur" ? "检测中..." : "🔍 检测模糊照片"}
           </button>
           <button
             className="btn-detect"
             onClick={handleDuplicateDetect}
-            disabled={detectingDup}
+            disabled={detectType !== null}
           >
-            {detectingDup ? "正在检测..." : "🔗 检测重复照片"}
+            {detectType === "duplicate" ? "检测中..." : "🔗 检测重复照片"}
           </button>
           <button
             className="btn-import"
             onClick={handleImport}
-            disabled={importing}
+            disabled={importing || detectType !== null}
           >
             {importing ? "正在导入..." : "📁 导入照片目录"}
           </button>
@@ -648,14 +755,13 @@ const BrowserPage: React.FC = () => {
         </div>
         <DetailPanel
           imageId={selectedId}
-          zoomMode={zoomMode}
           refreshKey={detailRefreshKey}
         />
       </div>
 
-      {(importMsg || detectMsg || detectDupMsg) && (
+      {(importMsg || detectMsg) && (
         <div className="import-status">
-          {detectDupMsg || detectMsg || importMsg}
+          {detectMsg || importMsg}
         </div>
       )}
 

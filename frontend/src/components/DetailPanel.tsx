@@ -9,8 +9,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import FullsizePreview from "./FullsizePreview";
 import { fetchPhotoDetail } from "../api/photoApi";
-import type { PhotoDetailResponse } from "../../types";
-import type { ZoomMode } from "../hooks/useKeyboardNavigation";
+import type { PhotoDetailResponse, ZoomMode } from "../../types";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -20,11 +19,11 @@ function formatFileSize(bytes: number): string {
 
 interface DetailPanelProps {
   imageId: string | null;
-  zoomMode: ZoomMode;
+  zoomMode?: ZoomMode;
   refreshKey: number;
 }
 
-const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode, refreshKey }) => {
+const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", refreshKey }) => {
   const [detail, setDetail] = useState<PhotoDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
