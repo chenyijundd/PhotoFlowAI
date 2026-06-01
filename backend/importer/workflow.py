@@ -3,12 +3,17 @@ PhotoFlow AI - Import Workflow
 
 Orchestrates the complete photo import pipeline:
 
-  Step 1 — Scan directory for images         (image_loader)
-  Step 2 — Extract RAW previews              (raw_preview)
-  Step 3 — Generate thumbnails                (thumbnail_cache)
-  Step 4 — Write metadata to SQLite           (database repository)
+  Step 1 — Scan directory for images         (parallel metadata)
+  Step 2 — Extract RAW previews              (parallel rawpy)
+  Step 3 — Generate thumbnails                (parallel Pillow)
+  Step 4 — Write metadata to SQLite           (single-thread)
   Step 5 — Sync: remove stale DB records      (filesystem check)
   Step 6 — Return import statistics
+
+Steps 1-3 use ``ThreadPoolExecutor`` for parallel processing.
+Pillow, rawpy, and OpenCV release the GIL during C-level operations
+so threads achieve near-process-level parallelism without the
+memory overhead of spawning child processes.
 
 Each photo is processed individually so a single failure does not
 abort the entire import.
@@ -16,9 +21,16 @@ abort the entire import.
 
 import logging
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
-from backend.image_loader.utils import collect_scan
+from backend.image_loader.utils import (
+    safe_get_image_size,
+    get_file_created_time,
+    generate_file_id,
+)
+from backend.image_loader.models import PhotoInfo
 from backend.raw_preview.extractor import is_raw_file, extract_preview
 from backend.thumbnail_cache.utils import (
     generate_single_thumbnail,
@@ -31,8 +43,110 @@ from database.models import PhotoRecord
 logger = logging.getLogger("importer")
 
 
+# ---------------------------------------------------------------------------
+# Worker functions (module-level for ThreadPoolExecutor)
+# ---------------------------------------------------------------------------
+
+def _resolve_photo_metadata(file_path: str, input_dir: str) -> PhotoInfo | None:
+    """Resolve full metadata for a single image file.
+
+    Called inside a ``ThreadPoolExecutor`` worker thread — Pillow and
+    rawpy release the GIL so multiple threads can process images in
+    parallel with near-linear speedup.
+
+    Returns None if the file is unsupported, unreadable, or corrupted.
+    """
+    from backend.image_loader.utils import is_supported_format
+
+    if not is_supported_format(file_path):
+        return None
+    if not os.path.isfile(file_path):
+        return None
+
+    try:
+        file_size = os.path.getsize(file_path)
+        created_time = get_file_created_time(file_path)
+        width, height = safe_get_image_size(file_path)
+    except OSError:
+        return None
+
+    if width == 0 or height == 0:
+        return None
+
+    photo_id = generate_file_id(file_path, input_dir)
+    return PhotoInfo(
+        id=photo_id,
+        file_name=os.path.basename(file_path),
+        file_path=file_path,
+        file_size=file_size,
+        created_time=created_time,
+        width=width,
+        height=height,
+    )
+
+
+def _list_image_files(directory: str) -> list[str]:
+    """Recursively walk *directory* and return all image file paths.
+
+    Only does filesystem listing — no Pillow/rawpy calls.
+    """
+    from backend.image_loader.utils import is_supported_format
+
+    result: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for file_name in sorted(files):
+            file_path = os.path.join(root, file_name)
+            if not is_supported_format(file_path):
+                continue
+            if not os.path.isfile(file_path):
+                continue
+            result.append(file_path)
+    return result
+
+
+def _extract_raw_preview_worker(args: tuple[str, str]) -> tuple[str, str | None]:
+    """Extract RAW preview for a single file.  Returns ``(image_id, preview_path)``."""
+    image_id, file_path = args
+    try:
+        preview_path = extract_preview(file_path, image_id)
+        if preview_path and os.path.isfile(preview_path):
+            return (image_id, preview_path)
+    except Exception as exc:
+        logger.warning("RAW preview failed for %s: %s", file_path, exc)
+    return (image_id, None)
+
+
+def _thumbnail_worker(args: tuple[str, str, str]) -> bool:
+    """Generate a thumbnail for a single photo.  Returns True on success."""
+    image_id, source_path, cache_dir = args
+    try:
+        generate_single_thumbnail(
+            source_path=source_path,
+            image_id=image_id,
+            cache_dir=cache_dir,
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Thumbnail failed for %s: %s", image_id, exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Main import workflow
+# ---------------------------------------------------------------------------
+
+
+def _worker_count() -> int:
+    """Return a sensible ThreadPoolExecutor worker count for I/O + CPU work."""
+    cpu = os.cpu_count() or 4
+    return max(4, min(cpu * 2, 16))  # I/O-heavy: 2× cores, capped at 16
+
+
 def import_directory(directory: str) -> dict:
     """Execute the full import workflow for *directory*.
+
+    Steps 1-3 run with ``ThreadPoolExecutor`` for parallel processing
+    (Pillow / rawpy release the GIL during C-level operations).
 
     Returns a dict with keys:
         total      — number of images found on disk
@@ -40,72 +154,114 @@ def import_directory(directory: str) -> dict:
         skipped    — total - imported (already existed)
         errors     — number of thumbnail-generation failures
         raw_count  — number of RAW files with previews extracted
+        removed    — number of stale DB records cleaned up
     """
-    # ------------------------------------------------------------------
-    # Step 1 — Scan directory
-    # ------------------------------------------------------------------
-    logger.info("Step 1/6: Scanning %s", directory)
-    scanned_photos = collect_scan(directory)
+    t0_total = time.time()
+    workers = _worker_count()
+    logger.info("Import start: %s (workers=%d)", directory, workers)
+
+    # ==================================================================
+    # Step 1 — Parallel: discover files + resolve metadata
+    # ==================================================================
+    logger.info("Step 1/6: Scanning %s (parallel)", directory)
+    t0 = time.time()
+
+    file_paths = _list_image_files(directory)
+    if not file_paths:
+        logger.info("No supported images found in %s", directory)
+        return {"total": 0, "imported": 0, "skipped": 0, "errors": 0,
+                "raw_count": 0, "removed": 0}
+
+    scanned_photos: list[PhotoInfo] = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_resolve_photo_metadata, fp, directory): fp
+            for fp in file_paths
+        }
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                scanned_photos.append(result)
+
+    # Sort by file name to maintain consistent ordering
+    scanned_photos.sort(key=lambda p: p.file_name)
     total = len(scanned_photos)
-    logger.info("Found %d image(s)", total)
+    elapsed = time.time() - t0
+    logger.info(
+        "Step 1/6: Found %d image(s) in %.1fs (%.0f photos/s)",
+        total, elapsed, total / elapsed if elapsed > 0 else 0,
+    )
 
     if total == 0:
-        return {"total": 0, "imported": 0, "skipped": 0, "errors": 0, "raw_count": 0}
+        return {"total": 0, "imported": 0, "skipped": 0, "errors": 0,
+                "raw_count": 0, "removed": 0}
 
-    # ------------------------------------------------------------------
-    # Step 2 — Extract RAW previews
-    # ------------------------------------------------------------------
-    logger.info("Step 2/6: Extracting RAW previews")
-    raw_count = 0
-    # Build a mapping: image_id → raw_preview_path
+    # ==================================================================
+    # Step 2 — Parallel: extract RAW previews
+    # ==================================================================
+    logger.info("Step 2/6: Extracting RAW previews (parallel)")
+    t0 = time.time()
     preview_map: dict[str, str] = {}
+    raw_count = 0
 
-    for p in scanned_photos:
-        if not is_raw_file(p.file_path):
-            continue
-        try:
-            preview_path = extract_preview(p.file_path, p.id)
-            if preview_path and os.path.isfile(preview_path):
-                preview_map[p.id] = preview_path
-                raw_count += 1
-                logger.info(
-                    "RAW preview extracted: %s → %s",
-                    p.file_name, preview_path,
-                )
-            else:
-                logger.warning("RAW preview extraction returned no file for %s", p.file_name)
-        except Exception as exc:
-            logger.warning("RAW preview failed for %s: %s", p.file_name, exc)
+    raw_tasks = [
+        (p.id, p.file_path) for p in scanned_photos
+        if is_raw_file(p.file_path)
+    ]
+    if raw_tasks:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(_extract_raw_preview_worker, task): task[0]
+                for task in raw_tasks
+            }
+            for future in as_completed(futures):
+                image_id, preview_path = future.result()
+                if preview_path:
+                    preview_map[image_id] = preview_path
+                    raw_count += 1
 
+    elapsed = time.time() - t0
     if raw_count > 0:
-        logger.info("Extracted %d RAW preview(s)", raw_count)
+        logger.info(
+            "Step 2/6: Extracted %d RAW preview(s) in %.1fs (%.0f previews/s)",
+            raw_count, elapsed, raw_count / elapsed if elapsed > 0 else 0,
+        )
 
-    # ------------------------------------------------------------------
-    # Step 3 — Generate thumbnails (per-file error tolerance)
-    # ------------------------------------------------------------------
-    logger.info("Step 3/6: Generating thumbnails")
+    # ==================================================================
+    # Step 3 — Parallel: generate thumbnails
+    # ==================================================================
+    logger.info("Step 3/6: Generating thumbnails (parallel)")
+    t0 = time.time()
     cache_dir = ensure_cache_dir(DEFAULT_CACHE_DIR)
     thumb_errors = 0
 
-    for p in scanned_photos:
-        try:
-            # For RAW files, use the extracted preview as the source
-            # so Pillow can read it for thumbnail generation
-            source = preview_map.get(p.id, p.file_path)
-            generate_single_thumbnail(
-                source_path=source,
-                image_id=p.id,
-                cache_dir=cache_dir,
-            )
-            # generate_single_thumbnail skips already-cached images
-        except Exception as exc:
-            thumb_errors += 1
-            logger.warning("Thumbnail failed for %s: %s", p.file_name, exc)
+    thumb_tasks = [
+        (p.id, preview_map.get(p.id, p.file_path), cache_dir)
+        for p in scanned_photos
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_thumbnail_worker, task): task[0]
+            for task in thumb_tasks
+        }
+        for future in as_completed(futures):
+            if not future.result():
+                thumb_errors += 1
 
-    # ------------------------------------------------------------------
+    elapsed = time.time() - t0
+    logger.info(
+        "Step 3/6: %d thumbnails in %.1fs (%.0f thumbs/s), %d errors",
+        total - thumb_errors, elapsed,
+        (total - thumb_errors) / elapsed if elapsed > 0 else 0,
+        thumb_errors,
+    )
+
+    # ==================================================================
     # Step 4 — Write to database  (INSERT OR IGNORE → duplicate-safe)
-    # ------------------------------------------------------------------
+    # ==================================================================
     logger.info("Step 4/6: Writing to database")
+    t0 = time.time()
+
     records: List[PhotoRecord] = []
     for p in scanned_photos:
         records.append(
@@ -125,11 +281,14 @@ def import_directory(directory: str) -> dict:
     repo.init_database()
     imported = repo.insert_photos(records)
     skipped = total - imported
+    logger.info("Step 4/6: DB write in %.1fs — %d imported, %d skipped",
+                time.time() - t0, imported, skipped)
 
-    # ------------------------------------------------------------------
+    # ==================================================================
     # Step 5 — Sync: remove photos from DB whose files no longer exist
-    # ------------------------------------------------------------------
+    # ==================================================================
     logger.info("Step 5/6: Syncing deleted files")
+    t0 = time.time()
     all_photos = repo.get_all_photos()
     removed = 0
     for p in all_photos:
@@ -138,11 +297,12 @@ def import_directory(directory: str) -> dict:
             removed += 1
             logger.info("Removed stale record: %s", p.file_path)
     if removed > 0:
-        logger.info("Synced: %d stale record(s) removed", removed)
+        logger.info("Synced: %d stale record(s) removed in %.1fs", removed, time.time() - t0)
 
-    # ------------------------------------------------------------------
+    # ==================================================================
     # Step 6 — Return statistics
-    # ------------------------------------------------------------------
+    # ==================================================================
+    elapsed_total = time.time() - t0_total
     result = {
         "total": total,
         "imported": imported,
@@ -152,7 +312,9 @@ def import_directory(directory: str) -> dict:
         "removed": removed,
     }
     logger.info(
-        "Step 6/6: Import complete — total=%d imported=%d skipped=%d raw=%d removed=%d errors=%d",
+        "Step 6/6: Import complete — total=%d imported=%d skipped=%d "
+        "raw=%d removed=%d errors=%d | %.1fs total",
         total, imported, skipped, raw_count, removed, thumb_errors,
+        elapsed_total,
     )
     return result

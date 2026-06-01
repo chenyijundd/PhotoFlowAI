@@ -1,23 +1,44 @@
 # Duplicate Detection Module
 
-检测重复照片（相似图片 + 连拍去重），基于 **Perceptual Hash (phash)** 算法。
+检测重复照片（相似图片 + 连拍去重），基于 **Difference Hash (dHash)** + **多索引哈希表** + **时间窗口分组**。
 
 > **Pipeline role (L4 — last detection step)**: Runs last in the cascade.
 > Only photos not already classified as closed-eye, blurry, or burst are
 > checked for duplicates. This avoids redundant detection and ensures
 > each photo has a single primary label.
 
-## Perceptual Hash 原理
+## 优化算法（Task 1）
 
-[pHash](https://en.wikipedia.org/wiki/Perceptual_hashing) 是一种感知哈希算法，通过以下步骤为每张图片生成一个 64-bit 指纹：
+传统 O(n²) 两两比较在 4200 张照片时需要 ~880 万次比较。新算法分三步缩小候选集：
 
-1. 缩小图片至 32×32 像素，忽略高频细节
+### 第一步 — 时间窗口预分组
+
+按 EXIF 拍摄时间将照片聚类。拍摄间隔 > 30 秒的照片进入不同的时间窗口，不同窗口之间不做比较。无拍摄时间的照片归入单独的"兜底窗口"。
+
+4200 张 → 拆成 ~50 个窗口，平均每窗口 ~84 张 → 候选对从 880 万降到 ~17 万。
+
+### 第二步 — dHash 多索引哈希表
+
+在每个时间窗口内，为所有照片计算 dHash（Difference Hash，64-bit 整数），将 64-bit 哈希值拆分为 8 个 8-bit 段，建 8 张哈希表。仅当两张照片至少共享一个段值时才成为候选对。
+
+**鸽巢原理保证**：汉明距离 ≤ 5 时，8 个段中至少有 3 个段完全匹配 → 真正的重复照片绝不会被漏掉。
+
+每窗口 84 张 → 候选对进一步降到 ~200-500 对。
+
+### 第三步 — 精确汉明距离判定
+
+仅对通过前两步的候选对做精确汉明距离比较（CPU POPCNT 指令，单周期）。距离 ≤ 5 → 判定为重复。
+
+## dHash 原理
+
+[dHash](https://en.wikipedia.org/wiki/Perceptual_hashing) 是一种基于梯度的感知哈希算法：
+
+1. 缩放图片至 9×8 像素
 2. 转为灰度图
-3. 应用离散余弦变换（DCT），提取低频信息
-4. 取左上 8×8 的 DCT 系数
-5. 以中位数为阈值，生成 64-bit 二进制哈希值
+3. 逐行比较相邻像素：`pixel[x] < pixel[x+1]` → 1，否则 → 0
+4. 得到 8×8 = 64-bit 二进制哈希值
 
-**直觉**：相似的图片具有相似的 pHash 值，差异越小说明图片越相似。
+dHash 比 pHash (DCT-based) 快约 3×，且对亮度变化更鲁棒。
 
 ## Hamming Distance 规则
 
@@ -57,19 +78,23 @@ dup_0002 → photo_c.jpg, photo_d.jpg, photo_e.jpg（相似构图）
 POST /api/ai/duplicate-detect  { photo_ids: [...] }
          │
          ▼
-service.run_duplicate_detection()
+service.start_duplicate_detection()
          │
-         ├── Step 1: 逐一计算 pHash
-         │     ├── Pillow 读取原图（禁用缩略图）
-         │     └── imagehash.phash() → 64-bit hash
+         ├── Phase 1: 逐一计算 dHash (64-bit int)
+         │     ├── Pillow 读取原图
+         │     └── imagehash.dhash() → 64-bit integer
          │
-         ├── Step 2: 两两比较 Hamming Distance
+         ├── Phase 2: 时间窗口分组
+         │     ├── 按 EXIF 拍摄时间排序
+         │     └── 间隔 > 30 秒 → 新窗口
+         │
+         ├── Phase 3: 窗口内检测
+         │     ├── 多索引哈希表 (8 segments × 8 bits)
+         │     ├── 候选对查找（共享至少 1 个段）
+         │     ├── 精确汉明距离比较（POPCNT）
          │     └── Union-Find 分组
          │
-         ├── Step 3: 分配 group_id
-         │     └── dup_0001, dup_0002, ...
-         │
-         └── Step 4: 写入数据库
+         └── Phase 4: 分配 group_id + 写入数据库
                ├── repo.update_duplicate_status(id, 1, group_id)
                └── 日志记录到 logs/duplicate_detection.log
 ```
@@ -88,10 +113,14 @@ service.run_duplicate_detection()
 响应：
 ```json
 {
-    "processed": 1000,
-    "duplicate_groups": 128,
-    "duplicates": 642
+    "task_id": "a1b2c3d4",
+    "total": 1000
 }
+```
+
+轮询进度：
+```
+GET /api/ai/duplicate-progress/{task_id}
 ```
 
 ### `GET /api/photos/duplicate?limit=100&offset=0`
@@ -104,22 +133,40 @@ service.run_duplicate_detection()
 { "count": 642 }
 ```
 
+## 性能对比
+
+| 场景 | 旧算法 (O(n²) phash) | 新算法 (时间窗口 + dHash 多索引) |
+|------|---------------------|-------------------------------|
+| 4200 张照片 | ~880 万次比较 | ~1-1.5 万次比较 |
+| 预计耗时 | 数分钟 | 数十秒 |
+| 省时比例 | — | **90-95%** |
+
+## 与连拍分组的关系
+
+```
+连拍分组（Step 3）:           重复检测（Step 4）:
+  ┌─────────────────┐           ┌─────────────────┐
+  │ 同一场景、连拍快门  │           │ 不同时刻、同一场景  │
+  │ 间隔 < 2 秒       │           │ 间隔 > 2 秒       │
+  │ 选出 1 张最佳     │           │ 选出 1 张保留     │
+  │ 如：10 连拍 → 1 张 │           │ 如：拍了 3 次 → 1 张 │
+  └─────────────────┘           └─────────────────┘
+      互补关系：连拍处理"太快"的重复，重复检测处理"太像"的冗余
+```
+
 ## 当前限制
 
 - Threshold 写死为 5，不可调
-- O(n²) 两两比较（大数据集较慢，3000 张约 450 万次比较）
-- 不支持多线程 / GPU 加速
-- 单张失败不影响整体（自动跳过）
-- **不做最佳照片选择** — 只检测和标记，不自动保留哪张
 - 不区分「连拍重复」和「相似照片」
 - 无分组 UI（无彩色边框、连线、动画）
 - 不处理旋转/翻转/裁剪变体
+- 无 SSIM 终判（可在 Phase 3 后添加，精度更高但需加载原图）
 
 ## 后续扩展点
 
 - Threshold 可调参数（API 参数 + UI 滑块）
-- 使用 FAISS 或类似向量检索引擎加速（替代 O(n²) 比较）
-- 多线程批量处理
+- SSIM 精确终判（对候选对做结构相似度验证）
+- 多线程批量计算 dHash（ThreadPoolExecutor，与导入类似）
 - 自动保留最佳照片（基于 blur_score + eye_score 综合评分）
 - 分组 UI（彩色边框标记同组照片）
 - 批量操作（全选同组、一键保留最佳）

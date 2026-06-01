@@ -14,7 +14,9 @@ from PIL import Image
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from backend.ai.duplicate_detector.detector import compute_phash, hamming_distance
-from backend.ai.duplicate_detector.service import UnionFind, DUPLICATE_THRESHOLD
+from backend.ai.duplicate_detector.service import (
+    UnionFind, DUPLICATE_THRESHOLD, start_duplicate_detection,
+)
 
 
 def create_test_image(path: str, color: tuple = (100, 149, 237)) -> str:
@@ -130,12 +132,12 @@ class TestUnionFind(unittest.TestCase):
 class TestDuplicateDetectorService(unittest.TestCase):
     """Tests for the duplicate detection service (orchestration)."""
 
-    def test_run_duplicate_detection_empty_list(self):
-        from backend.ai.duplicate_detector.service import run_duplicate_detection
-        processed, groups, duplicates = run_duplicate_detection([], None)
-        self.assertEqual(processed, 0)
-        self.assertEqual(groups, 0)
-        self.assertEqual(duplicates, 0)
+    def test_start_duplicate_detection_empty_list(self):
+        """Empty photo list should return a task_id and complete immediately."""
+        task_id = start_duplicate_detection([], None)
+        self.assertIsNotNone(task_id)
+        self.assertIsInstance(task_id, str)
+        self.assertGreater(len(task_id), 0)
 
     def test_threshold_constant(self):
         self.assertEqual(DUPLICATE_THRESHOLD, 5)
