@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import FullsizePreview from "./FullsizePreview";
+import BurstFilmstrip from "./BurstFilmstrip";
 import { fetchPhotoDetail } from "../api/photoApi";
 import type { PhotoDetailResponse, ZoomMode } from "../../types";
 
@@ -21,9 +22,11 @@ interface DetailPanelProps {
   imageId: string | null;
   zoomMode?: ZoomMode;
   refreshKey: number;
+  /** Called after a burst group action so the parent can refresh grid & counts. */
+  onBurstAction?: () => void;
 }
 
-const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", refreshKey }) => {
+const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", refreshKey, onBurstAction }) => {
   const [detail, setDetail] = useState<PhotoDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,11 +137,19 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
             <span className="detail-value">{detail.duplicate_group}</span>
           </div>
         )}
-        {detail?.ai_suggestion && (
+        {detail?.burst_group && (
           <div className="detail-field">
-            <span className="detail-label">AI 建议</span>
+            <span className="detail-label">连拍组</span>
             <span className="detail-value">
-              {detail.ai_suggestion === "POSSIBLE_BEST" ? "⭐ 最佳照片" : detail.ai_suggestion === "POSSIBLE_BLUR" ? "🔍 可能模糊" : "🔗 可能重复"}
+              {detail.burst_group}{detail.burst_position != null ? `（第 ${detail.burst_position + 1}/${detail.burst_total ?? "?"} 张）` : ""}
+            </span>
+          </div>
+        )}
+        {detail?.burst_group && detail?.is_best_in_burst !== undefined && (
+          <div className="detail-field">
+            <span className="detail-label">推荐照片</span>
+            <span className="detail-value" style={{ color: detail.is_best_in_burst === 1 ? "#ffd700" : "#7a7a9a" }}>
+              {detail.is_best_in_burst === 1 ? "✓ 是（最佳推荐）" : "✗ 否"}
             </span>
           </div>
         )}
@@ -153,11 +164,31 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
             </span>
           </div>
         )}
+        {detail?.eye_score != null && (
+          <div className="detail-field">
+            <span className="detail-label">闭眼检测</span>
+            <span className="detail-value" style={{ color: detail.is_closed_eye === 1 ? "#e94560" : "#1dd1a1" }}>
+              {detail.is_closed_eye === 1
+                ? `闭眼（EAR: ${detail.eye_score.toFixed(4)}）`
+                : `睁眼（EAR: ${detail.eye_score.toFixed(4)}）`
+              }
+            </span>
+          </div>
+        )}
         <div className="detail-field">
           <span className="detail-label">ID</span>
           <span className="detail-value detail-id" title={detail?.image_id}>{detail?.image_id}</span>
         </div>
       </div>
+
+      {/* Burst group filmstrip */}
+      {detail?.burst_group && (
+        <BurstFilmstrip
+          currentImageId={imageId}
+          burstGroupId={detail.burst_group}
+          onAction={onBurstAction}
+        />
+      )}
     </aside>
   );
 };

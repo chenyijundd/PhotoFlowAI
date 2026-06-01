@@ -122,26 +122,32 @@ class PhotoRepository:
             return conn.total_changes - before
 
     def get_all_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photo records ordered by file_name."""
+        """Retrieve all photo records ordered by created_time (拍摄时间)."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos ORDER BY created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
     def get_starred_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photos with star_rating == 1, ordered by file_name."""
+        """Retrieve all photos with star_rating == 1.
+
+        Sorted by manually_operated_at DESC (manually starred first),
+        then by created_time (拍摄时间) for AI-starred photos.
+        """
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE star_rating = 1 ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE star_rating = 1 "
+                "ORDER BY manually_operated_at DESC NULLS LAST, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
     def get_blur_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photos with is_blur == 1, ordered by file_name."""
+        """Retrieve all photos with is_blur == 1, sorted by blur_score DESC (worst first)."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_blur = 1 ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_blur = 1 "
+                "ORDER BY blur_score DESC, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -213,19 +219,37 @@ class PhotoRepository:
             duplicate_group=duplicate_group,
         )
 
-    def update_star_rating(self, image_id: str, star_rating: int) -> bool:
+    def update_star_rating(self, image_id: str, star_rating: int, is_manual: bool = False) -> bool:
         """Update the star rating for a photo.
 
-        Returns True if a row was updated.
-        """
-        return self._update_fields(image_id, star_rating=star_rating)
+        When star_rating == 1, is_rejected is automatically cleared to 0
+        so that star and reject are always mutually exclusive.
 
-    def update_reject_status(self, image_id: str, is_rejected: int) -> bool:
+        When is_manual=True, also records manually_operated_at so the photo
+        sorts to the top of the 已选 tab.
+        """
+        fields = {"star_rating": star_rating}
+        if star_rating == 1:
+            fields["is_rejected"] = 0
+        if is_manual:
+            fields["manually_operated_at"] = datetime.now(timezone.utc).isoformat()
+        return self._update_fields(image_id, **fields)
+
+    def update_reject_status(self, image_id: str, is_rejected: int, is_manual: bool = False) -> bool:
         """Update the reject status for a photo.
 
-        Returns True if a row was updated.
+        When is_rejected == 1, star_rating is automatically cleared to 0
+        so that star and reject are always mutually exclusive.
+
+        When is_manual=True, also records manually_operated_at so the photo
+        sorts to the top of the 废片 tab.
         """
-        return self._update_fields(image_id, is_rejected=is_rejected)
+        fields = {"is_rejected": is_rejected}
+        if is_rejected == 1:
+            fields["star_rating"] = 0
+        if is_manual:
+            fields["manually_operated_at"] = datetime.now(timezone.utc).isoformat()
+        return self._update_fields(image_id, **fields)
 
     def update_photos_batch(
         self,
@@ -273,18 +297,25 @@ class PhotoRepository:
         return total_updated
 
     def get_rejected_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photos with is_rejected == 1, ordered by file_name."""
+        """Retrieve rejected photos that are NOT starred, ordered by manually_operated_at then created_time.
+
+        Starred photos always belong to the 已选 tab — they are excluded
+        from the 废片 view even if is_rejected=1.
+        """
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_rejected = 1 ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE is_rejected = 1 AND (star_rating IS NULL OR star_rating != 1) "
+                "ORDER BY manually_operated_at DESC NULLS LAST, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
     def get_duplicate_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photos with is_duplicate == 1, ordered by file_name."""
+        """Retrieve all photos with is_duplicate == 1, grouped by duplicate_group then file_name."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_duplicate = 1 ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_duplicate = 1 "
+                "ORDER BY duplicate_group, file_name"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -324,34 +355,269 @@ class PhotoRepository:
             return row[0] if row else 0
 
     def get_rejected_count(self) -> int:
-        """Return the count of photos with is_rejected == 1."""
+        """Return the count of rejected photos that are NOT starred.
+
+        Starred photos belong to 已选, not 废片.
+        """
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_rejected = 1"
+                "SELECT COUNT(*) FROM photos "
+                "WHERE is_rejected = 1 AND (star_rating IS NULL OR star_rating != 1)"
             ).fetchone()
             return row[0] if row else 0
 
-    # ---- AI Suggestion methods ----
+    # ---- Burst group methods ----
 
-    def get_suggested_photos(self) -> List[PhotoRecord]:
-        """Retrieve all photos with ai_suggestion IS NOT NULL, ordered by file_name."""
+    def update_burst_group(
+        self,
+        image_id: str,
+        burst_group: str,
+        burst_position: int,
+    ) -> bool:
+        """Set the burst_group and burst_position for a photo.
+
+        Returns True if a row was updated.
+        """
+        return self._update_fields(
+            image_id,
+            burst_group=burst_group,
+            burst_position=burst_position,
+        )
+
+    def clear_burst_group(self, image_id: str) -> bool:
+        """Remove a photo from its burst group (set burst_group and burst_position to NULL).
+
+        Returns True if a row was updated.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "UPDATE photos SET burst_group = NULL, burst_position = NULL,"
+                " updated_at = ? WHERE image_id = ?",
+                (datetime.now(timezone.utc).isoformat(), image_id),
+            )
+            return cursor.rowcount > 0
+
+    def delete_photo(self, image_id: str) -> bool:
+        """Delete a photo record from the database.
+
+        Returns True if a row was deleted.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM photos WHERE image_id = ?", (image_id,)
+            )
+            return cursor.rowcount > 0
+
+    def get_burst_group_photos(self, group_id: str) -> list:
+        """Retrieve all photos in a specific burst group, ordered by burst_position."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE ai_suggestion IS NOT NULL ORDER BY file_name"
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE burst_group = ? ORDER BY burst_position",
+                (group_id,),
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
-    def get_suggested_count(self) -> int:
-        """Return the count of photos with ai_suggestion IS NOT NULL."""
+    def get_burst_groups(self) -> list[str]:
+        """Return all distinct burst_group IDs."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT burst_group FROM photos "
+                "WHERE burst_group IS NOT NULL ORDER BY burst_group"
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    def get_burst_group_count(self) -> int:
+        """Return the number of distinct burst groups."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE ai_suggestion IS NOT NULL"
+                "SELECT COUNT(DISTINCT burst_group) FROM photos "
+                "WHERE burst_group IS NOT NULL"
             ).fetchone()
             return row[0] if row else 0
 
-    def update_suggestion(self, image_id: str, suggestion: Optional[str]) -> bool:
-        """Update the ai_suggestion field for a photo. Pass None to clear."""
-        return self._update_fields(image_id, ai_suggestion=suggestion)
+    def get_burst_group_size(self, group_id: str) -> int:
+        """Return the number of photos in a specific burst group."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE burst_group = ?",
+                (group_id,),
+            ).fetchone()
+            return row[0] if row else 0
+
+    # ---- Best-in-burst / Best-in-duplicate methods ----
+
+    def update_best_in_burst(self, image_id: str, is_best: int) -> bool:
+        """Set the is_best_in_burst flag for a photo (1 = recommended, 0 = not).
+
+        Returns True if a row was updated.
+        """
+        return self._update_fields(image_id, is_best_in_burst=is_best)
+
+    def update_best_in_duplicate(self, image_id: str, is_best: int) -> bool:
+        """Set the is_best_in_duplicate flag for a photo (1 = recommended, 0 = not).
+
+        Returns True if a row was updated.
+        """
+        return self._update_fields(image_id, is_best_in_duplicate=is_best)
+
+    def get_best_photos(self) -> list:
+        """Retrieve all best-recommended photos (burst OR duplicate best).
+
+        Returns photos where is_best_in_burst == 1 OR is_best_in_duplicate == 1,
+        ordered by is_best_in_burst DESC (burst best first), then created_time.
+        """
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1 "
+                "ORDER BY is_best_in_burst DESC, created_time"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_burst_best_count(self) -> int:
+        """Return the count of recommended photos (burst best + duplicate best)."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos "
+                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1"
+            ).fetchone()
+            return row[0] if row else 0
+
+    # ---- Unprocessed photos (not starred, not rejected) ----
+
+    # ---- Closed-eye methods ----
+
+    def get_closed_eye_photos(self) -> list:
+        """Retrieve all photos with is_closed_eye == 1, sorted by eye_score ASC (worst first)."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_closed_eye = 1 "
+                "ORDER BY eye_score ASC, created_time"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_closed_eye_count(self) -> int:
+        """Return the count of photos with is_closed_eye == 1."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1"
+            ).fetchone()
+            return row[0] if row else 0
+
+    # ---- Unprocessed photos ----
+
+    def get_unprocessed_photos(self) -> list:
+        """Retrieve photos that are neither starred nor rejected, ordered by created_time."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE (star_rating IS NULL OR star_rating != 1) "
+                "AND is_rejected != 1 ORDER BY created_time"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_unprocessed_count(self) -> int:
+        """Return the count of unprocessed photos."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos "
+                "WHERE (star_rating IS NULL OR star_rating != 1) "
+                "AND is_rejected != 1"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_unanalyzed_photos(self) -> list:
+        """Retrieve photos that have never been analysed (analyzed_at IS NULL),
+        ordered by created_time."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE analyzed_at IS NULL ORDER BY created_time"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_unanalyzed_count(self) -> int:
+        """Return the count of unanalyzed photos."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NULL"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_ai_summary(self) -> dict:
+        """Return a comprehensive summary of AI analysis results.
+
+        Returns a dict with keys:
+          total_analyzed, closed_eye_count, blur_count,
+          burst_group_count, burst_photo_count,
+          duplicate_group_count, duplicate_photo_count,
+          best_count, clean_count
+        """
+        with self._get_conn() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NOT NULL"
+            ).fetchone()[0]
+
+            eye = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1"
+            ).fetchone()[0]
+
+            blur = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE is_blur = 1"
+            ).fetchone()[0]
+
+            burst_groups = conn.execute(
+                "SELECT COUNT(DISTINCT burst_group) FROM photos "
+                "WHERE burst_group IS NOT NULL"
+            ).fetchone()[0]
+
+            burst_photos = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE burst_group IS NOT NULL"
+            ).fetchone()[0]
+
+            dup_groups = conn.execute(
+                "SELECT COUNT(DISTINCT duplicate_group) FROM photos "
+                "WHERE duplicate_group IS NOT NULL"
+            ).fetchone()[0]
+
+            dup_photos = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE is_duplicate = 1"
+            ).fetchone()[0]
+
+            best = conn.execute(
+                "SELECT COUNT(*) FROM photos "
+                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1"
+            ).fetchone()[0]
+
+            # Clean = analysed photos with NO defects
+            clean = conn.execute(
+                "SELECT COUNT(*) FROM photos "
+                "WHERE analyzed_at IS NOT NULL "
+                "AND is_closed_eye = 0 "
+                "AND is_blur = 0 "
+                "AND burst_group IS NULL "
+                "AND is_duplicate = 0"
+            ).fetchone()[0]
+
+        return {
+            "total_analyzed": total,
+            "closed_eye_count": eye,
+            "blur_count": blur,
+            "burst_group_count": burst_groups,
+            "burst_photo_count": burst_photos,
+            "duplicate_group_count": dup_groups,
+            "duplicate_photo_count": dup_photos,
+            "best_count": best,
+            "clean_count": clean,
+        }
+
+    def mark_analyzed(self, image_id: str) -> bool:
+        """Mark a photo as analysed by setting analyzed_at to now."""
+        return self._update_fields(
+            image_id,
+            analyzed_at=datetime.now(timezone.utc).isoformat(),
+        )
 
     def _update_fields(self, image_id: str, **fields) -> bool:
         """Generic field updater. Builds SET clause from keyword arguments.

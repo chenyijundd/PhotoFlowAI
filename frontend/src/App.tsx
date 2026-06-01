@@ -3,9 +3,7 @@
  *
  * Manages backend connectivity and renders the photo browser.
  *
- * Performance (Task 14):
- *   - Wraps app in ErrorBoundary to prevent full white-screen on crash
- *   - Includes PerformanceOverlay for dev-mode debugging
+ * ErrorBoundary prevents full white-screen on crash.
  */
 
 import React, { useState, useEffect } from "react";
@@ -13,8 +11,9 @@ import BrowserPage from "./pages/BrowserPage";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
 import { LightboxModeProvider } from "./context/LightboxModeContext";
+import { UndoRedoProvider } from "./context/UndoRedoContext";
+import { BatchSelectionProvider } from "./context/BatchSelectionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
-import PerformanceOverlay from "./components/PerformanceOverlay";
 
 type BackendStatus = "connecting" | "connected" | "error";
 
@@ -65,12 +64,15 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <PhotoSelectionProvider>
+        <UndoRedoProvider>
+        <BatchSelectionProvider>
         <CompareModeProvider>
         <LightboxModeProvider>
           <BrowserPage />
         </LightboxModeProvider>
-        <PerformanceOverlay />
       </CompareModeProvider>
+        </BatchSelectionProvider>
+        </UndoRedoProvider>
       </PhotoSelectionProvider>
     </ErrorBoundary>
   );

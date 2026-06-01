@@ -16,6 +16,13 @@ from typing import Optional
 
 from PIL import Image
 
+# Register HEIC/HEIF support with Pillow (one-time, at import)
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
 from .models import ThumbnailResult
 
 logger = logging.getLogger(__name__)

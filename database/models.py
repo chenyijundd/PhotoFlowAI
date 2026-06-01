@@ -5,6 +5,7 @@ Defines data structures for database operations.
 All models use dataclasses with full type annotations.
 """
 
+import os
 from dataclasses import dataclass, asdict
 from typing import Optional
 
@@ -15,6 +16,7 @@ PHOTO_COLUMNS = (
     "image_id",
     "file_name",
     "file_path",
+    "raw_preview_path",
     "thumbnail_path",
     "file_size",
     "width",
@@ -28,7 +30,12 @@ PHOTO_COLUMNS = (
     "is_duplicate",
     "is_rejected",
     "star_rating",
-    "ai_suggestion",
+    "burst_group",
+    "burst_position",
+    "is_best_in_burst",
+    "is_best_in_duplicate",
+    "manually_operated_at",
+    "analyzed_at",
     "created_at",
     "updated_at",
 )
@@ -41,6 +48,7 @@ class PhotoRecord:
     image_id: str
     file_name: str
     file_path: str
+    raw_preview_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
     file_size: int = 0
     width: int = 0
@@ -54,13 +62,29 @@ class PhotoRecord:
     is_duplicate: int = 0
     is_rejected: int = 0
     star_rating: Optional[int] = None
-    ai_suggestion: Optional[str] = None
+    burst_group: Optional[str] = None
+    burst_position: Optional[int] = None
+    is_best_in_burst: int = 0
+    is_best_in_duplicate: int = 0
+    manually_operated_at: Optional[str] = None
+    analyzed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to a serializable dictionary, omitting None values."""
         return {k: v for k, v in asdict(self).items() if v is not None}
+
+    @property
+    def readable_path(self) -> str:
+        """Return the path that can be opened by standard image libraries.
+
+        For RAW files, returns the extracted JPEG preview path.
+        For regular images, returns *file_path* unchanged.
+        """
+        if self.raw_preview_path and os.path.isfile(self.raw_preview_path):
+            return self.raw_preview_path
+        return self.file_path
 
     def to_row_values(self) -> tuple:
         """Return column values in PHOTO_COLUMNS order for SQL insertion."""

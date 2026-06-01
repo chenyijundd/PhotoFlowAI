@@ -50,14 +50,24 @@ class UnionFind:
         self.size[rx] += self.size[ry]
 
 
-def _run_duplicate_loop(task_id: str, photo_ids: list[str]):
-    """Run duplicate detection in background thread, updating shared state."""
+def _run_duplicate_loop(task_id: str, photo_ids: list[str], skip_ids: set[str] | None = None):
+    """Run duplicate detection in background thread, updating shared state.
+
+    Args:
+        task_id: Unique task identifier for progress polling.
+        photo_ids: List of image_id values to process.
+        skip_ids: Optional set of image_id values to skip (counted toward
+            progress but not actually processed).  Used for closed-eye photos
+            that have already been flagged as unfixable.
+    """
     from database.repository import PhotoRepository
     repo = PhotoRepository()
 
     state = _tasks.get(task_id)
     if not state:
         return
+
+    _skip = skip_ids or set()
 
     total = len(photo_ids)
     state["total"] = total
@@ -72,6 +82,13 @@ def _run_duplicate_loop(task_id: str, photo_ids: list[str]):
             logger.info("Duplicate detection %s cancelled at %d/%d", task_id, state["processed"], total)
             break
 
+        # ---- Skip photos already flagged as closed-eye ----
+        if image_id in _skip:
+            state["processed"] += 1
+            state["progress"] = state["processed"]
+            state["current_file"] = image_id
+            continue
+
         photo = repo.get_photo_by_id(image_id)
         if photo is None:
             state["failed"] += 1
@@ -79,7 +96,7 @@ def _run_duplicate_loop(task_id: str, photo_ids: list[str]):
 
         t0 = time.time()
         try:
-            ph = compute_phash(photo.file_path)
+            ph = compute_phash(photo.readable_path)
             elapsed = time.time() - t0
             phashes.append((image_id, len(phashes), ph))
             state["processed"] += 1
@@ -157,8 +174,13 @@ def _run_duplicate_loop(task_id: str, photo_ids: list[str]):
     logger.info("=== Duplicate Detection Complete ===")
 
 
-def start_duplicate_detection(photo_ids: list[str]) -> str:
-    """Start duplicate detection in a background thread. Returns task_id."""
+def start_duplicate_detection(photo_ids: list[str], skip_ids: set[str] | None = None) -> str:
+    """Start duplicate detection in a background thread. Returns task_id.
+
+    Args:
+        photo_ids: List of image_id values to process.
+        skip_ids: Optional set of image_id values to skip (e.g. closed-eye photos).
+    """
     task_id = uuid.uuid4().hex[:8]
 
     state = {
@@ -177,7 +199,7 @@ def start_duplicate_detection(photo_ids: list[str]) -> str:
     with _lock:
         _tasks[task_id] = state
 
-    t = threading.Thread(target=_run_duplicate_loop, args=(task_id, photo_ids), daemon=True)
+    t = threading.Thread(target=_run_duplicate_loop, args=(task_id, photo_ids, skip_ids), daemon=True)
     t.start()
     return task_id
 

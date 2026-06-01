@@ -8,18 +8,27 @@
 
 import React from "react";
 
-export type StatusType = "star" | "reject" | "ai_accept" | null;
+export type StatusType = "star" | "reject" | "ai_accept" | "hint" | "undo" | "redo" | null;
 
 interface StatusOverlayProps {
   type: StatusType;
+  message?: string;
 }
 
-const StatusOverlay: React.FC<StatusOverlayProps> = ({ type }) => {
+const StatusOverlay: React.FC<StatusOverlayProps> = ({ type, message }) => {
   if (!type) return null;
+
+  const label =
+    type === "star" ? "★ PICKED" :
+    type === "reject" ? "✕ REJECTED" :
+    type === "ai_accept" ? "AI ACCEPTED" :
+    type === "undo" ? (message || "↩ 已撤销") :
+    type === "redo" ? (message || "↪ 已重做") :
+    message || "";
 
   return (
     <div className={`status-overlay status-overlay--${type}`}>
-      {type === "star" ? "★ PICKED" : type === "reject" ? "✕ REJECTED" : "AI ACCEPTED"}
+      {label}
     </div>
   );
 };

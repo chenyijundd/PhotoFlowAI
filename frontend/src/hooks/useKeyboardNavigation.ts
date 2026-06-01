@@ -4,7 +4,7 @@
  * Drives the photographer's keyboard-only selection workflow:
  *   ← →  navigate photos (skip rejected unless in reject mode)
  *   Space toggle star (0 ↔ 1) → auto-advance
- *   X     toggle reject (0 ↔ 1) → auto-advance
+ *   D     toggle reject (0 ↔ 1) → auto-advance
  *   Enter toggle fit / 100 % zoom
  *   Home first photo
  *   End   last photo
@@ -151,8 +151,8 @@ export function useKeyboardNavigation({
           }
           return true;
         }
-        case "x":
-        case "X": {
+        case "d":
+        case "D": {
           e.preventDefault();
           if (sid && idx >= 0) {
             const currentReject = p[idx].is_rejected ?? 0;

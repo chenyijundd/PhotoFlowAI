@@ -24,7 +24,13 @@
 | `is_blur` | INTEGER | 是否模糊（0/1） |
 | `is_closed_eye` | INTEGER | 是否闭眼（0/1） |
 | `is_duplicate` | INTEGER | 是否重复（0/1） |
-| `star_rating` | INTEGER | 星级评分 |
+| `is_rejected` | INTEGER | 是否废片（0/1） |
+| `star_rating` | INTEGER | 星级评分（NULL/0/1） |
+| `burst_group` | TEXT | 连拍分组 ID（NULL=非连拍） |
+| `burst_position` | INTEGER | 连拍组内序号（0-based） |
+| `is_best_in_burst` | INTEGER | 是否为连拍组最佳（0/1） |
+| `is_best_in_duplicate` | INTEGER | 是否为重复组最佳（0/1） |
+| `manually_operated_at` | TEXT | 最后手动操作时间 |
 | `created_at` | TEXT | 记录创建时间 |
 | `updated_at` | TEXT | 记录更新时间 |
 
@@ -89,12 +95,11 @@ database/
 - 仅支持单文件 SQLite，不支持分布式
 - 无增量更新检测（每次 --import 全量扫描）
 - 无分页查询（大结果集需手动 LIMIT）
-- 无自动迁移机制（表结构变更需手动处理）
 
-## 后续扩展点
+## 已实现特性
 
-- 分页查询支持（`LIMIT/OFFSET`）
-- 增量导入（仅处理新增/修改的文件）
-- 多条件筛选查询（按评分、按标签）
-- 自动数据库迁移（Schema migration）
-- 收藏/标记功能扩展字段
+- ✅ 自动数据库迁移（新增字段自动 ALTER TABLE）
+- ✅ Repository 模式 CRUD
+- ✅ 批量事务支持
+- ✅ Burst 组清空方法 `clear_burst_group()`（级联管道使用）
+- ✅ 多条件筛选查询（按状态/评分/AI标签）

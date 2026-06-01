@@ -41,6 +41,8 @@ interface LightboxModeContextType {
   toggleReject: () => Promise<void>;
   setZoomMode: (mode: ZoomMode) => void;
   setZoomScale: (scale: number) => void;
+  /** Let the parent track whether modifications happened during this session. */
+  setDirtyRef: (ref: React.MutableRefObject<boolean>) => void;
 }
 
 const LightboxModeContext = createContext<LightboxModeContextType | null>(null);
@@ -54,6 +56,17 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [statusType, setStatusType] = useState<StatusType>(null);
 
   const actionInFlightRef = useRef(false);
+  const dirtyRef = useRef<React.MutableRefObject<boolean> | null>(null);
+
+  const setDirtyRef = useCallback((ref: React.MutableRefObject<boolean>) => {
+    dirtyRef.current = ref;
+  }, []);
+
+  const markDirty = useCallback(() => {
+    if (dirtyRef.current) {
+      dirtyRef.current.current = true;
+    }
+  }, []);
 
   /** Update a single photo in the snapshot (in-place mutation via setState). */
   const updatePhoto = useCallback((imageId: string, updates: Partial<PhotoInfo>) => {
@@ -132,6 +145,7 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const newRating = (photo.star_rating ?? 0) >= 1 ? 0 : 1;
       await updateStarRating(photo.image_id, newRating);
       updatePhoto(photo.image_id, { star_rating: newRating });
+      markDirty();
       setStatusType("star");
       setTimeout(() => setStatusType(null), 500);
     } catch {
@@ -152,6 +166,7 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const newReject = (photo.is_rejected ?? 0) >= 1 ? 0 : 1;
       await updateRejectStatus(photo.image_id, newReject);
       updatePhoto(photo.image_id, { is_rejected: newReject });
+      markDirty();
       setStatusType("reject");
       setTimeout(() => setStatusType(null), 500);
     } catch {
@@ -178,6 +193,7 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
         toggleReject,
         setZoomMode,
         setZoomScale,
+        setDirtyRef,
       }}
     >
       {children}

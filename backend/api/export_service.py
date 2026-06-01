@@ -24,11 +24,22 @@ class ExportStartResult(BaseModel):
 @router.post("/start", response_model=ExportStartResult)
 async def export_start(body: ExportStartRequest):
     """Start an export. Returns an export_id to poll for progress."""
+    logger.info("Export request: mode=%s folder=%s template=%s prefix=%s start=%d format=%s",
+                body.mode, body.target_folder,
+                body.name_template or "original",
+                body.name_prefix or "(none)",
+                body.start_index or 1,
+                (body.export_format.value if body.export_format else "original"))
     try:
         export_id = start_export(
             target_folder=body.target_folder,
             mode=body.mode,
             photo_ids=body.photo_ids,
+            filter_mode=body.filter_mode,
+            name_template=body.name_template,
+            name_prefix=body.name_prefix,
+            start_index=body.start_index,
+            export_format=body.export_format.value if body.export_format else "original",
         )
         return ExportStartResult(export_id=export_id)
     except Exception as exc:

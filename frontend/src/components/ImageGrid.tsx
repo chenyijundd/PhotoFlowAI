@@ -5,6 +5,11 @@
  * Supports 5000+ images without performance degradation.
  * Exposes scrollToIndex via ref for keyboard navigation.
  *
+ * Batch selection: passes isBatchSelected to each ImageCard so the
+ * custom comparator can prevent unnecessary re-renders.  Stores the
+ * ordered photo ID list as a data attribute on the grid container
+ * for Shift+Click range calculation.
+ *
  * Performance (Task 14):
  *   - Scroll stability: preserves scroll position on data updates
  *   - useMemo for Cell renderer to prevent full grid re-render
@@ -15,6 +20,7 @@ import React, { useRef, useCallback, useEffect, useState, forwardRef, useImperat
 import { FixedSizeGrid as Grid } from "react-window";
 import type { GridOnItemsRenderedProps } from "react-window";
 import ImageCard from "./ImageCard";
+import { useBatchSelection } from "../context/BatchSelectionContext";
 import type { PhotoInfo } from "../../types";
 
 const CARD_WIDTH = 200;
@@ -40,6 +46,19 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<Grid>(null);
     const [dimensions, setDimensions] = useState({ width: 1200, height: 800 });
+    const { isSelected } = useBatchSelection();
+
+    // Build ordered photo ID list for Shift+Click range selection
+    const photoIds = useMemo(() => photos.map((p) => p.image_id), [photos]);
+
+    // Write ordered IDs to the grid container as a data attribute so
+    // ImageCard's Shift+Click handler can read them without coupling.
+    useEffect(() => {
+      const el = containerRef.current?.closest(".photo-grid-container");
+      if (el) {
+        el.setAttribute("data-photo-ids", JSON.stringify(photoIds));
+      }
+    }, [photoIds]);
 
     // Scroll position preservation
     const scrollPositionRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null);
@@ -80,8 +99,8 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
       [],
     );
 
-    // Memoize Cell renderer with stable reference
-    // Only rebuild when photos array reference or columnCount changes
+    // Memoize Cell renderer with stable reference.
+    // Rebuild when photos, columnCount, or selection state changes.
     const Cell = useMemo(() => {
       return ({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
         const index = rowIndex * columnCount + columnIndex;
@@ -90,11 +109,14 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
 
         return (
           <div style={style}>
-            <ImageCard photo={photo} />
+            <ImageCard
+              photo={photo}
+              isBatchSelected={isSelected(photo.image_id)}
+            />
           </div>
         );
       };
-    }, [photos, columnCount]);
+    }, [photos, columnCount, isSelected]);
 
     const handleItemsRendered = useCallback(
       (props: GridOnItemsRenderedProps) => {
@@ -151,7 +173,7 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
         {loading && (
           <div className="grid-loading-bar">正在加载更多照片...</div>
         )}
-        {!hasMore && photos.length > 0 && (
+        {photos.length > 0 && (
           <div className="grid-end">
             共 {total} 张照片
           </div>

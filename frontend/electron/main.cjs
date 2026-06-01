@@ -84,6 +84,16 @@ ipcMain.handle("get-starred-count", async () => {
   return response.json();
 });
 
+/** Fetch all filter counts in one request. */
+ipcMain.handle("fetch-counts", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/counts`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
 /** Fetch photos from the Python backend through IPC. */
 ipcMain.handle("get-photos", async (_event, limit = 100, offset = 0) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos?limit=${limit}&offset=${offset}`;
@@ -152,9 +162,211 @@ ipcMain.handle("get-blur-count", async () => {
   return response.json();
 });
 
-/** Start blur detection on a set of photo IDs through IPC. */
-ipcMain.handle("run-blur-detection", async (_event, photoIds) => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-detect`;
+/** Start burst grouping through IPC. */
+ipcMain.handle("run-burst-grouping", async (_event, gapSeconds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/burst-group`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gap_seconds: gapSeconds ?? null }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Poll burst grouping progress. */
+ipcMain.handle("burst-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/burst-progress/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Cancel burst grouping. */
+ipcMain.handle("burst-cancel", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/burst-cancel/${taskId}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch burst groups summary. */
+ipcMain.handle("get-burst-groups", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/bursts`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch photos in a specific burst group. */
+ipcMain.handle("get-burst-photos", async (_event, groupId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/burst/${encodeURIComponent(groupId)}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch burst group count. */
+ipcMain.handle("get-burst-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/bursts/count`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch photos in any burst group (for filter mode). */
+ipcMain.handle("get-burst-photos-list", async (_event, limit, offset) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/burst?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Start combined AI analysis (blur -> duplicate -> burst -> best). */
+ipcMain.handle("analyze-all", async (_event, photoIds, filterMode) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/analyze-all`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds ?? null, filter_mode: filterMode ?? null }),
+  });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Poll analyze-all progress. */
+ipcMain.handle("analyze-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/analyze-progress/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch unprocessed photos. */
+ipcMain.handle("get-unprocessed-photos", async (_event, limit, offset) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/unprocessed?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch unprocessed count. */
+ipcMain.handle("get-unprocessed-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/unprocessed/count`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch best-in-burst photos. */
+ipcMain.handle("get-best-photos-list", async (_event, limit, offset) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/best?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch best-in-burst count. */
+ipcMain.handle("get-best-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/best/count`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Accept best photo in a burst group, reject the rest. */
+ipcMain.handle("burst-accept-best", async (_event, groupId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/${encodeURIComponent(groupId)}/accept-best`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Accept all photos in a burst group. */
+ipcMain.handle("burst-accept-all", async (_event, groupId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/${encodeURIComponent(groupId)}/accept-all`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Reject all photos in a burst group. */
+ipcMain.handle("burst-reject-all", async (_event, groupId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/${encodeURIComponent(groupId)}/reject-all`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Accept best in ALL burst groups. */
+ipcMain.handle("burst-accept-all-best", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/accept-all-best`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Reject all non-recommended photos across all burst groups. */
+ipcMain.handle("burst-reject-all-rest", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/reject-all-rest`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Comprehensive one-click cull: blur + duplicate + burst + AI suggestions (async). */
+ipcMain.handle("cull-all", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/cull-all`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Poll one-click cull progress. */
+ipcMain.handle("cull-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/cull-progress/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Start blur detection V2 (multi-patch, content-aware) through IPC. */
+ipcMain.handle("run-blur-detection-v2", async (_event, photoIds, threshold) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-detect-v2`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds, threshold: threshold ?? null }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(err || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+/** Poll blur detection V2 progress. */
+ipcMain.handle("blur-progress-v2", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-progress-v2/${taskId}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Cancel blur detection V2. */
+ipcMain.handle("blur-cancel-v2", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-cancel-v2/${taskId}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Start eye detection (closed / half-closed eyes) through IPC. */
+ipcMain.handle("run-eye-detection", async (_event, photoIds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/eye-detect`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -167,18 +379,34 @@ ipcMain.handle("run-blur-detection", async (_event, photoIds) => {
   return response.json();
 });
 
-/** Poll blur detection progress. */
-ipcMain.handle("blur-progress", async (_event, taskId) => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-progress/${taskId}`;
+/** Poll eye detection progress. */
+ipcMain.handle("eye-progress", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/eye-progress/${taskId}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   return response.json();
 });
 
-/** Cancel blur detection. */
-ipcMain.handle("blur-cancel", async (_event, taskId) => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/blur-cancel/${taskId}`;
+/** Cancel eye detection. */
+ipcMain.handle("eye-cancel", async (_event, taskId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/eye-cancel/${taskId}`;
   const response = await fetch(url, { method: "POST" });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch closed-eye photos through IPC. */
+ipcMain.handle("get-closed-eye-photos", async (_event, limit = 100, offset = 0) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/closed-eye?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+/** Fetch closed-eye count through IPC. */
+ipcMain.handle("get-closed-eye-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/closed-eye/count`;
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   return response.json();
 });
@@ -278,48 +506,22 @@ ipcMain.handle("get-photos-by-group", async (_event, groupId) => {
   return response.json();
 });
 
-/** Generate AI suggestions for all (or selected) photos. */
-ipcMain.handle("generate-suggestions", async (_event, photoIds) => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/ai/generate-suggestions`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ photo_ids: photoIds || null }),
-  });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(err || `Backend returned ${response.status}`);
-  }
-  return response.json();
-});
-
-/** Fetch photos with AI suggestions. */
-ipcMain.handle("get-suggested-photos", async (_event, limit = 100, offset = 0) => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/suggested?limit=${limit}&offset=${offset}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Backend returned ${response.status}`);
-  }
-  return response.json();
-});
-
-/** Fetch count of photos with AI suggestions. */
-ipcMain.handle("get-suggested-count", async () => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/suggested/count`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Backend returned ${response.status}`);
-  }
-  return response.json();
-});
-
 /** Start an export to a target folder. */
-ipcMain.handle("export-start", async (_event, targetFolder, mode, photoIds) => {
+ipcMain.handle("export-start", async (_event, targetFolder, mode, photoIds, filterMode, nameTemplate, namePrefix, startIndex, exportFormat) => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/export/start`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_folder: targetFolder, mode, photo_ids: photoIds || null }),
+    body: JSON.stringify({
+      target_folder: targetFolder,
+      mode,
+      photo_ids: photoIds || null,
+      filter_mode: filterMode || null,
+      name_template: nameTemplate || null,
+      name_prefix: namePrefix || null,
+      start_index: startIndex ?? null,
+      export_format: exportFormat || null,
+    }),
   });
   if (!response.ok) {
     const err = await response.text();

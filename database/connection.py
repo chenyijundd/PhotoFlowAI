@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS photos (
     image_id TEXT PRIMARY KEY,
     file_name TEXT,
     file_path TEXT,
+    raw_preview_path TEXT DEFAULT NULL,
     thumbnail_path TEXT,
     file_size INTEGER,
     width INTEGER,
@@ -30,6 +31,13 @@ CREATE TABLE IF NOT EXISTS photos (
     is_rejected INTEGER DEFAULT 0,
 
     star_rating INTEGER DEFAULT NULL,
+
+    burst_group TEXT DEFAULT NULL,
+    burst_position INTEGER DEFAULT NULL,
+    is_best_in_burst INTEGER DEFAULT 0,
+    is_best_in_duplicate INTEGER DEFAULT 0,
+    manually_operated_at TEXT DEFAULT NULL,
+    analyzed_at TEXT DEFAULT NULL,
 
     created_at TEXT,
     updated_at TEXT
@@ -117,9 +125,45 @@ def init_database(db_path: Optional[str] = None) -> str:
                         "ALTER TABLE photos ADD COLUMN is_duplicate INTEGER DEFAULT 0"
                     )
 
-                # Migration: add ai_suggestion column if missing (v0.5.0)
-                if "ai_suggestion" not in cols:
+                # Migration: add burst_group column if missing
+                if "burst_group" not in cols:
                     conn.execute(
-                        "ALTER TABLE photos ADD COLUMN ai_suggestion TEXT DEFAULT NULL"
+                        "ALTER TABLE photos ADD COLUMN burst_group TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add burst_position column if missing
+                if "burst_position" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN burst_position INTEGER DEFAULT NULL"
+                    )
+
+                # Migration: add is_best_in_burst column if missing
+                if "is_best_in_burst" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN is_best_in_burst INTEGER DEFAULT 0"
+                    )
+
+                # Migration: add is_best_in_duplicate column if missing
+                if "is_best_in_duplicate" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN is_best_in_duplicate INTEGER DEFAULT 0"
+                    )
+
+                # Migration: add manually_operated_at column if missing (v1.0 — photo sorting)
+                if "manually_operated_at" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN manually_operated_at TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add analyzed_at column if missing (v1.1 — incremental analysis)
+                if "analyzed_at" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN analyzed_at TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add raw_preview_path column if missing (v1.2 — RAW support)
+                if "raw_preview_path" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN raw_preview_path TEXT DEFAULT NULL"
                     )
     return path

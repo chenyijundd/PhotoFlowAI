@@ -6,7 +6,7 @@
  *   Left/Right  navigate within duplicate group
  *   Tab         switch active side
  *   Space       toggle star on active photo (auto-advance)
- *   X           toggle reject on active photo (auto-advance)
+ *   D           toggle reject on active photo (auto-advance)
  *   ESC         exit compare mode
  *
  * Cull Workflow features:
@@ -28,7 +28,6 @@ import ExportDialog from "./ExportDialog";
 import type { StatusType } from "../context/CompareModeContext";
 import { useCompareMode } from "../context/CompareModeContext";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
-import { setComparePreloadCount } from "./PerformanceOverlay";
 import { fullsizeUrl } from "../api/photoApi";
 
 /** Lightweight preload helper: creates an off-screen Image to warm the browser cache. */
@@ -85,14 +84,12 @@ const ComparePage: React.FC = () => {
     preloadRefs.current = [];
 
     if (!groupPhotos || groupPhotos.length < 3) {
-      setComparePreloadCount(0);
       return;
     }
 
     // Preload the next pair (currentIndex + 1, currentIndex + 2)
     const nextIdx = Math.min(groupPhotos.length - 2, currentIndex + 1);
     if (nextIdx === currentIndex) {
-      setComparePreloadCount(0);
       return;
     }
 
@@ -104,9 +101,6 @@ const ComparePage: React.FC = () => {
     if (p2) imgs.push(preloadImage(fullsizeUrl(p2.image_id)));
 
     preloadRefs.current = imgs;
-    if (process.env.NODE_ENV === "development") {
-      setComparePreloadCount(imgs.length);
-    }
   }, [groupPhotos, currentIndex]);
 
   // ---- Compare mode keyboard handler (centralized) ----
@@ -146,8 +140,8 @@ const ComparePage: React.FC = () => {
           });
           return true;
         }
-        case "x":
-        case "X": {
+        case "d":
+        case "D": {
           e.preventDefault();
           actionInFlightRef.current = true;
           toggleRejectActive().finally(() => {
@@ -219,9 +213,6 @@ const ComparePage: React.FC = () => {
         <span className="compare-header-active">
           ACTIVE: {activeSide === "left" ? "LEFT" : "RIGHT"}
         </span>
-        {(leftPhoto?.ai_suggestion === "POSSIBLE_BEST" || rightPhoto?.ai_suggestion === "POSSIBLE_BEST") && (
-          <span className="compare-header-ai">AI Suggested</span>
-        )}
         <span className="compare-header-hint">
           ← → 切换 · Tab切换 · Space标星 · X废片 · ESC退出
         </span>
@@ -252,7 +243,6 @@ const ComparePage: React.FC = () => {
         <ExportDialog
           defaultMode="compare"
           photoIds={groupPhotos.map((p) => p.image_id)}
-          estimatedCount={groupPhotos.length}
           onClose={() => setShowExportDialog(false)}
         />
       )}

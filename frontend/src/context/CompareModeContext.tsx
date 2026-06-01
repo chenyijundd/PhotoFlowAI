@@ -44,6 +44,8 @@ interface CompareModeContextType {
   toggleRejectActive: () => Promise<void>;
   onStatus: (type: StatusType) => void;
   setOnStatus: (fn: (type: StatusType) => void) => void;
+  /** Let the parent track whether modifications happened during this session. */
+  setDirtyRef: (ref: React.MutableRefObject<boolean>) => void;
 }
 
 const CompareModeContext = createContext<CompareModeContextType | null>(null);
@@ -63,6 +65,17 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Guard against rapid successive actions
   const actionInFlightRef = useRef(false);
+  const dirtyRef = useRef<React.MutableRefObject<boolean> | null>(null);
+
+  const setDirtyRef = useCallback((ref: React.MutableRefObject<boolean>) => {
+    dirtyRef.current = ref;
+  }, []);
+
+  const markDirty = useCallback(() => {
+    if (dirtyRef.current) {
+      dirtyRef.current.current = true;
+    }
+  }, []);
 
   const setOnStatus = useCallback((fn: (type: StatusType) => void) => {
     setStatusFn(() => fn);
@@ -239,6 +252,7 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         );
 
         updatePhotoInState(target.image_id, { star_rating: newRating });
+        markDirty();
         onStatus("star");
 
         // Auto-advance when starring (not un-starring)
@@ -273,6 +287,7 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         );
 
         updatePhotoInState(target.image_id, { is_rejected: newReject });
+        markDirty();
         onStatus("reject");
 
         // Auto-advance when rejecting (not un-rejecting)
@@ -311,6 +326,7 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         toggleRejectActive,
         onStatus,
         setOnStatus,
+        setDirtyRef,
       }}
     >
       {children}

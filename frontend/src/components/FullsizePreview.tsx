@@ -35,7 +35,7 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const src = fullsizeUrl(imageId);
+  const src = `${fullsizeUrl(imageId)}?t=${encodeURIComponent(imageId)}`;
 
   // Reset state when imageId changes.
   // Then check img.complete — for cached images, onLoad fires
@@ -72,14 +72,11 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
   }, [zoomMode, loaded, error, zoomScale]);
 
   const handleLoad = useCallback(() => setLoaded(true), []);
-  const handleError = useCallback(() => {
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.error("[FullsizePreview] onError for", imageId, "src:", (e.target as HTMLImageElement).src);
     setLoaded(true);
     setError(true);
-    // Release failed resource
-    if (imgRef.current) {
-      imgRef.current.src = "";
-    }
-  }, []);
+  }, [imageId]);
 
   const containerClass =
     zoomMode === "zoom100"
@@ -100,11 +97,11 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
         </div>
       )}
       <img
+        key={imageId}
         ref={imgRef}
         src={src}
         alt={fileName}
         loading="eager"
-        decoding="async"
         onLoad={handleLoad}
         onError={handleError}
         style={{

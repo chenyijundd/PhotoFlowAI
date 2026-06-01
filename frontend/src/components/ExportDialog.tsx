@@ -1,21 +1,26 @@
 /**
  * PhotoFlow AI — Export Dialog Component
  *
- * Professional export dialog with mode selection, progress tracking,
- * and cancel support. Displays export summary on completion.
+ * Professional export dialog with mode selection, naming template,
+ * progress tracking, and cancel support. Displays export summary
+ * on completion.
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { exportStart, exportProgress, exportCancel, exportSummary } from "../api/photoApi";
 import type { ExportMode, ExportProgressResponse, ExportSummaryResponse } from "../../types";
 
 interface ExportDialogProps {
   /** Pre-set export mode. */
   defaultMode: ExportMode;
-  /** For current_filter / compare mode: list of photo IDs. */
+  /** For compare mode: list of photo IDs. */
   photoIds?: string[];
-  /** Estimated count shown before export starts. */
-  estimatedCount: number;
+  /** For current_filter mode: server-side filter string. */
+  filterMode?: string;
+  /** Counts for each mode (dynamic, updates when dropdown changes). */
+  pickedCount?: number;
+  rejectedCount?: number;
+  allCount?: number;
   /** Called when dialog is closed. */
   onClose: () => void;
 }
@@ -29,15 +34,82 @@ const MODE_LABELS: Record<ExportMode, string> = {
   compare: "对比组 (Compare Group)",
 };
 
+type NameTemplate = "original" | "custom_index" | "custom_date_index";
+
+const TEMPLATE_LABELS: Record<NameTemplate, string> = {
+  original: "保持原名",
+  custom_index: "自定义前缀 + 序号",
+  custom_date_index: "自定义前缀 + 日期 + 序号",
+};
+
+type ExportFormat = "original" | "jpeg" | "png";
+
+const FORMAT_LABELS: Record<ExportFormat, string> = {
+  original: "保持原格式",
+  jpeg: "JPEG",
+  png: "PNG",
+};
+
+const FORMAT_HINTS: Record<ExportFormat, string> = {
+  original: "不转换，保留原始文件格式（JPG / HEIC / RAW 等）",
+  jpeg: "通用 JPEG 格式，兼容性最好，适合客户交付",
+  png: "无损 PNG 格式，文件较大，适合精修或印刷",
+};
+
+/** Generate a preview filename for the given template. */
+function previewName(
+  template: NameTemplate,
+  prefix: string,
+  index: number,
+): string {
+  const pre = prefix.trim() || "Export";
+  const idx = String(index).padStart(3, "0");
+  const today = new Date();
+  const dateStr =
+    String(today.getFullYear()) +
+    String(today.getMonth() + 1).padStart(2, "0") +
+    String(today.getDate()).padStart(2, "0");
+
+  switch (template) {
+    case "custom_index":
+      return `${pre}_${idx}.{ext}`;
+    case "custom_date_index":
+      return `${pre}_${dateStr}_${idx}.{ext}`;
+    default:
+      return "IMG_0001.{ext}";
+  }
+}
+
 const ExportDialog: React.FC<ExportDialogProps> = ({
   defaultMode,
   photoIds,
-  estimatedCount,
+  filterMode,
+  pickedCount,
+  rejectedCount,
+  allCount,
   onClose,
 }) => {
   const [phase, setPhase] = useState<DialogPhase>("config");
   const [mode, setMode] = useState<ExportMode>(defaultMode);
   const [targetFolder, setTargetFolder] = useState("");
+
+  // Naming template state
+  const [nameTemplate, setNameTemplate] = useState<NameTemplate>("original");
+  const [namePrefix, setNamePrefix] = useState("");
+  const [startIndex, setStartIndex] = useState(1);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("original");
+
+  /** Derive export count from current mode (updates on dropdown change). */
+  const exportCount = useMemo(() => {
+    if (mode === "compare") return photoIds?.length ?? 0;
+    if (mode === "picked") return pickedCount ?? 0;
+    if (mode === "rejected") return rejectedCount ?? 0;
+    // current_filter: count depends on which browser filter tab is active
+    if (filterMode === "starred") return pickedCount ?? 0;
+    if (filterMode === "rejected") return rejectedCount ?? 0;
+    return allCount ?? 0; // "all" or "unprocessed"
+  }, [mode, photoIds, pickedCount, rejectedCount, allCount, filterMode]);
+
   const [exportId, setExportId] = useState<string | null>(null);
   const [progress, setProgress] = useState<ExportProgressResponse | null>(null);
   const [summ, setSumm] = useState<ExportSummaryResponse | null>(null);
@@ -81,14 +153,25 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
     if (!targetFolder) return;
     setError(null);
     try {
-      const result = await exportStart(targetFolder, mode, photoIds);
+      const tpl = nameTemplate !== "original" ? nameTemplate : undefined;
+      const pre = nameTemplate !== "original" && namePrefix.trim()
+        ? namePrefix.trim()
+        : undefined;
+      const idx = nameTemplate !== "original" ? startIndex : undefined;
+      console.log("[ExportDialog] Starting export:",
+        { template: tpl, prefix: pre, startIndex: idx, mode, filterMode, exportFormat });
+      const result = await exportStart(
+        targetFolder, mode, photoIds, filterMode,
+        tpl, pre, idx,
+        exportFormat !== "original" ? exportFormat : undefined,
+      );
       setExportId(result.export_id);
       setPhase("exporting");
       startPolling(result.export_id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "导出启动失败");
     }
-  }, [targetFolder, mode, photoIds, startPolling]);
+  }, [targetFolder, mode, photoIds, filterMode, nameTemplate, namePrefix, startIndex, exportFormat, startPolling]);
 
   const handleCancel = useCallback(async () => {
     if (exportId) {
@@ -182,6 +265,8 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
     );
   }
 
+  const preview = previewName(nameTemplate, namePrefix, startIndex);
+
   // ---- Config Phase ----
   return (
     <div className="export-overlay">
@@ -189,7 +274,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <h3 className="export-dialog-title">导出照片</h3>
 
         <div className="export-field">
-          <label className="export-label">导出模式</label>
+          <label className="export-label">导出对象</label>
           <select
             className="export-select"
             value={mode}
@@ -198,6 +283,64 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             <option value="picked">{MODE_LABELS.picked}</option>
             <option value="rejected">{MODE_LABELS.rejected}</option>
             <option value="current_filter">{MODE_LABELS.current_filter}</option>
+          </select>
+        </div>
+
+        <div className="export-field">
+          <label className="export-label">文件命名</label>
+          <select
+            className="export-select"
+            value={nameTemplate}
+            onChange={(e) => setNameTemplate(e.target.value as NameTemplate)}
+          >
+            <option value="original">{TEMPLATE_LABELS.original}</option>
+            <option value="custom_index">{TEMPLATE_LABELS.custom_index}</option>
+            <option value="custom_date_index">{TEMPLATE_LABELS.custom_date_index}</option>
+          </select>
+        </div>
+
+        {nameTemplate !== "original" && (
+          <>
+            <div className="export-field">
+              <label className="export-label">名称前缀</label>
+              <input
+                className="export-input"
+                type="text"
+                value={namePrefix}
+                onChange={(e) => setNamePrefix(e.target.value)}
+                placeholder="例如：婚礼、新娘姓名..."
+              />
+            </div>
+            <div className="export-field">
+              <label className="export-label">起始序号</label>
+              <input
+                className="export-input"
+                type="number"
+                min={1}
+                max={9999}
+                value={startIndex}
+                onChange={(e) => setStartIndex(Number(e.target.value) || 1)}
+                style={{ width: 100 }}
+              />
+            </div>
+            <div className="export-field">
+              <label className="export-label">命名预览</label>
+              <span className="export-name-preview">{preview}</span>
+              <span className="export-name-hint">{FORMAT_HINTS[exportFormat]}</span>
+            </div>
+          </>
+        )}
+
+        <div className="export-field">
+          <label className="export-label">导出格式</label>
+          <select
+            className="export-select"
+            value={exportFormat}
+            onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
+          >
+            <option value="original">{FORMAT_LABELS.original}</option>
+            <option value="jpeg">{FORMAT_LABELS.jpeg}</option>
+            <option value="png">{FORMAT_LABELS.png}</option>
           </select>
         </div>
 
@@ -216,8 +359,8 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         </div>
 
         <div className="export-field">
-          <label className="export-label">预计数量</label>
-          <span className="export-estimate">{estimatedCount} 张</span>
+          <label className="export-label">导出数量</label>
+          <span className="export-estimate">{exportCount} 张</span>
         </div>
 
         {error && <div className="export-error">{error}</div>}
@@ -227,7 +370,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           <button
             className="btn-primary"
             onClick={handleStart}
-            disabled={!targetFolder || estimatedCount === 0}
+            disabled={!targetFolder || exportCount === 0}
           >
             开始导出
           </button>

@@ -42,14 +42,11 @@ const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
   }, [photo.image_id]);
 
   const handleLoad = useCallback(() => setLoaded(true), []);
-  const handleError = useCallback(() => {
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.error("[ComparePreview] onError for", photo.image_id, "src:", (e.target as HTMLImageElement).src);
     setLoaded(true);
     setError(true);
-    // Release failed resource
-    if (imgRef.current) {
-      imgRef.current.src = "";
-    }
-  }, []);
+  }, [photo.image_id]);
 
   return (
     <div className={`compare-panel${isActive ? " compare-panel--active" : ""}`}>
@@ -65,11 +62,11 @@ const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
           </div>
         )}
         <img
+          key={photo.image_id}
           ref={imgRef}
           src={src}
           alt={photo.file_name}
           loading="eager"
-          decoding="async"
           onLoad={handleLoad}
           onError={handleError}
           style={{ display: loaded && !error ? "block" : "none" }}
@@ -84,7 +81,7 @@ const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
           {(photo.star_rating ?? 0) >= 1 ? "★" : ""}
         </span>
         {(photo.is_rejected ?? 0) >= 1 && (
-          <span className="compare-meta-reject">REJECT</span>
+          <span className="compare-meta-reject">废片</span>
         )}
         {isActive && <span className="compare-meta-badge">当前</span>}
       </div>

@@ -101,6 +101,61 @@ def setup_export_logging() -> logging.Logger:
     return logger
 
 
+def setup_batch_operations_logging() -> logging.Logger:
+    """Set up rotating log for batch operations."""
+    logger = logging.getLogger("batch_operations")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("batch_operations.log")
+    logger.addHandler(handler)
+    return logger
+
+
+def setup_best_selector_logging() -> logging.Logger:
+    """Set up rotating log for best-in-burst selection."""
+    logger = logging.getLogger("best_selector")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("best_selector.log")
+    logger.addHandler(handler)
+    return logger
+
+
+def setup_burst_grouping_logging() -> logging.Logger:
+    """Set up rotating log for burst grouping."""
+    logger = logging.getLogger("burst_grouping")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("burst_grouping.log")
+    logger.addHandler(handler)
+    return logger
+
+
+def setup_blur_v2_logging() -> logging.Logger:
+    """Set up rotating log for blur detection v2."""
+    logger = logging.getLogger("blur_detection_v2")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("blur_detection_v2.log")
+    logger.addHandler(handler)
+    return logger
+
+
+def setup_eye_detection_logging() -> logging.Logger:
+    """Set up rotating log for eye detection."""
+    logger = logging.getLogger("eye_detection")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.handlers.clear()
+    handler = _create_rotating_handler("eye_detection.log")
+    logger.addHandler(handler)
+    return logger
+
+
 def setup_all_logging():
     """Initialize all rotating log handlers at once. Call at startup."""
     setup_importer_logging()
@@ -108,3 +163,4 @@ def setup_all_logging():
     setup_duplicate_logging()
     setup_app_logging()
     setup_export_logging()
+    setup_eye_detection_logging()

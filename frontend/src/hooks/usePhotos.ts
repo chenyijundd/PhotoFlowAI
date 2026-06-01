@@ -6,8 +6,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import type { PhotoInfo, PhotoFilterMode } from "../../types";
-import { fetchPhotos, fetchStarredPhotos, fetchBlurPhotos, fetchRejectedPhotos, fetchDuplicatePhotos, fetchSuggestedPhotos } from "../api/photoApi";
+import type { PhotoInfo, PhotoFilterMode, AICategory } from "../../types";
+import { fetchPhotos, fetchStarredPhotos, fetchRejectedPhotos, fetchUnprocessedPhotos, fetchBlurPhotos, fetchDuplicatePhotos, fetchBurstPhotosList, fetchBestPhotosList, fetchClosedEyePhotos } from "../api/photoApi";
 
 export interface UsePhotosResult {
   photos: PhotoInfo[];
@@ -20,7 +20,7 @@ export interface UsePhotosResult {
 
 const PAGE_SIZE = 100;
 
-export function usePhotos(filterMode: PhotoFilterMode = "all"): UsePhotosResult {
+export function usePhotos(filterMode: PhotoFilterMode = "all", aiCategory: AICategory = null): UsePhotosResult {
   const [photos, setPhotos] = useState<PhotoInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -32,6 +32,7 @@ export function usePhotos(filterMode: PhotoFilterMode = "all"): UsePhotosResult 
     currentOffset: number,
     append: boolean,
     currentFilter: PhotoFilterMode,
+    currentCategory: AICategory,
   ) => {
     try {
       if (append) {
@@ -41,17 +42,36 @@ export function usePhotos(filterMode: PhotoFilterMode = "all"): UsePhotosResult 
       }
       setError(null);
 
-      const data = currentFilter === "all"
-        ? await fetchPhotos(PAGE_SIZE, currentOffset)
-        : currentFilter === "starred"
-          ? await fetchStarredPhotos(PAGE_SIZE, currentOffset)
-          : currentFilter === "blur"
-            ? await fetchBlurPhotos(PAGE_SIZE, currentOffset)
+      let data;
+      if (currentCategory) {
+        switch (currentCategory) {
+          case "blur":
+            data = await fetchBlurPhotos(PAGE_SIZE, currentOffset);
+            break;
+          case "duplicate":
+            data = await fetchDuplicatePhotos(PAGE_SIZE, currentOffset);
+            break;
+          case "burst":
+            data = await fetchBurstPhotosList(PAGE_SIZE, currentOffset);
+            break;
+          case "best":
+            data = await fetchBestPhotosList(PAGE_SIZE, currentOffset);
+            break;
+          case "closed_eye":
+            data = await fetchClosedEyePhotos(PAGE_SIZE, currentOffset);
+            break;
+          default:
+            data = await fetchPhotos(PAGE_SIZE, currentOffset);
+        }
+      } else {
+        data = currentFilter === "all"
+          ? await fetchPhotos(PAGE_SIZE, currentOffset)
+          : currentFilter === "starred"
+            ? await fetchStarredPhotos(PAGE_SIZE, currentOffset)
             : currentFilter === "rejected"
               ? await fetchRejectedPhotos(PAGE_SIZE, currentOffset)
-              : currentFilter === "duplicate"
-                ? await fetchDuplicatePhotos(PAGE_SIZE, currentOffset)
-                : await fetchSuggestedPhotos(PAGE_SIZE, currentOffset);
+              : await fetchUnprocessedPhotos(PAGE_SIZE, currentOffset);
+      }
 
       setTotal(data.total);
 
@@ -69,23 +89,23 @@ export function usePhotos(filterMode: PhotoFilterMode = "all"): UsePhotosResult 
     }
   }, []);
 
-  // Reset and fetch when filterMode changes
+  // Reset and fetch when filterMode or aiCategory changes
   useEffect(() => {
     setOffset(0);
     setPhotos([]);
-    fetchPage(0, false, filterMode);
-  }, [filterMode, fetchPage]);
+    fetchPage(0, false, filterMode, aiCategory);
+  }, [filterMode, aiCategory, fetchPage]);
 
   const loadMore = useCallback(() => {
     const newOffset = offset + PAGE_SIZE;
     setOffset(newOffset);
-    fetchPage(newOffset, true, filterMode);
-  }, [offset, fetchPage, filterMode]);
+    fetchPage(newOffset, true, filterMode, aiCategory);
+  }, [offset, fetchPage, filterMode, aiCategory]);
 
   const refresh = useCallback(() => {
     setOffset(0);
-    fetchPage(0, false, filterMode);
-  }, [fetchPage, filterMode]);
+    fetchPage(0, false, filterMode, aiCategory);
+  }, [fetchPage, filterMode, aiCategory]);
 
   return {
     photos,

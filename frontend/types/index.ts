@@ -7,6 +7,7 @@ export interface PhotoInfo {
   image_id: string;
   file_name: string;
   file_path: string;
+  raw_preview_path: string | null;
   thumbnail_url: string | null;
   width: number;
   height: number;
@@ -14,10 +15,16 @@ export interface PhotoInfo {
   star_rating: number | null;
   blur_score: number | null;
   is_blur: number;
+  eye_score: number | null;
+  is_closed_eye: number;
   is_rejected: number;
   is_duplicate: number;
   duplicate_group: string | null;
-  ai_suggestion: string | null;
+  burst_group: string | null;
+  burst_position: number | null;
+  burst_total: number | null;
+  is_best_in_burst: number;
+  is_best_in_duplicate: number;
 }
 
 /** Paginated response from GET /api/photos. */
@@ -41,10 +48,16 @@ export interface PhotoDetailResponse {
   star_rating: number | null;
   blur_score: number | null;
   is_blur: number;
+  eye_score: number | null;
+  is_closed_eye: number;
   is_rejected: number;
   is_duplicate: number;
   duplicate_group: string | null;
-  ai_suggestion: string | null;
+  burst_group: string | null;
+  burst_position: number | null;
+  burst_total: number | null;
+  is_best_in_burst: number;
+  is_best_in_duplicate: number;
 }
 
 /** Response from PATCH /api/photo/{image_id}/star. */
@@ -61,6 +74,8 @@ export interface ImportResponse {
   imported: number;
   skipped: number;
   errors: number;
+  removed?: number;
+  raw_count?: number;
 }
 
 /** Response from GET /api/photos/starred/count. */
@@ -71,6 +86,14 @@ export interface StarredCountResponse {
 /** Response from GET /api/photos/blur/count. */
 export interface BlurCountResponse {
   count: number;
+}
+
+/** Response from GET /api/photos/counts (batch count endpoint). */
+export interface CountsResponse {
+  all: number;
+  starred: number;
+  unprocessed: number;
+  rejected: number;
 }
 
 /** Response from POST /api/ai/blur-detect (now async — returns task_id). */
@@ -125,7 +148,11 @@ export interface GetPhotosByGroupResponse {
 }
 
 /** Filter mode for the photo grid. */
-export type PhotoFilterMode = "all" | "starred" | "blur" | "rejected" | "duplicate" | "suggested";
+export type PhotoFilterMode = "all" | "starred" | "unprocessed" | "rejected";
+
+/** AI category filter for the photo grid (applied on top of filterMode).
+ *  Order matches the detection cascade: closed_eye → blur → burst → duplicate → best */
+export type AICategory = null | "closed_eye" | "blur" | "burst" | "duplicate" | "best";
 
 /** Zoom mode for full-size image preview. */
 export type ZoomMode = "fit" | "zoom100";
@@ -162,11 +189,91 @@ export interface ExportSummaryResponse {
   errors: string[];
 }
 
-/** Response from POST /api/ai/generate-suggestions. */
-export interface GenerateSuggestionsResponse {
-  processed: number;
-  suggestions_generated: number;
-  suggestion_counts: Record<string, number>;
+/** Response from GET /api/photos/bursts/count. */
+export interface BurstCountResponse {
+  count: number;
+}
+
+/** Response from GET /api/photos/best/count. */
+export interface BestCountResponse {
+  count: number;
+}
+
+/** Summary entry for a single burst group. */
+export interface BurstGroupEntry {
+  group_id: string;
+  photo_count: number;
+  photo_ids: string[];
+}
+
+/** Response from GET /api/photos/bursts. */
+export interface BurstGroupsResponse {
+  burst_groups: BurstGroupEntry[];
+  total: number;
+}
+
+/** Response from burst per-group operations. */
+export interface BurstOpResponse {
+  group_id: string;
+  accepted: number;
+  rejected: number;
+  unchanged: number;
+}
+
+/** Response from GET /api/photos/closed-eye/count. */
+export interface EyeClosedCountResponse {
+  count: number;
+}
+
+/** Response from GET /api/ai/summary — AI analysis statistics snapshot. */
+export interface AISummaryResponse {
+  total_analyzed: number;
+  closed_eye_count: number;
+  blur_count: number;
+  burst_group_count: number;
+  burst_photo_count: number;
+  duplicate_group_count: number;
+  duplicate_photo_count: number;
+  best_count: number;
+  clean_count: number;
+}
+
+/** Request body for POST /api/photos/batch-update. */
+export interface BatchUpdateRequest {
+  photo_ids: string[];
+  star_rating?: number;
+  is_rejected?: number;
+}
+
+/** Response from POST /api/photos/batch-update. */
+export interface BatchUpdateResponse {
+  updated: number;
+}
+
+/** Response from POST /api/photos/cull-all (comprehensive one-click cull). */
+export interface OneClickCullResponse {
+  eye_closed_rejected: number;
+  blur_flagged: number;
+  duplicate_rejected: number;
+  duplicate_best_kept: number;
+  burst_accepted: number;
+  burst_rejected: number;
+  clean_accepted: number;
+  total_accepted: number;
+  total_rejected: number;
+  untouched: number;
+  total_photos: number;
+}
+
+/** Progress response from GET /api/photos/cull-progress/{task_id}. */
+export interface CullProgressResponse {
+  task_id: string;
+  status: "running" | "completed" | "cancelled" | "error";
+  phase: string;
+  total: number;
+  progress: number;
+  result: OneClickCullResponse | null;
+  error: string | null;
 }
 
 /** API exposed to the renderer via preload contextBridge. */
@@ -180,11 +287,35 @@ export interface ElectronAPI {
   updateStarRating: (imageId: string, starRating: number) => Promise<StarResponse>;
   getStarredPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getStarredCount: () => Promise<StarredCountResponse>;
+  fetchCounts: () => Promise<CountsResponse>;
   getBlurPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getBlurCount: () => Promise<BlurCountResponse>;
-  runBlurDetection: (photoIds: string[]) => Promise<TaskStartResponse>;
-  blurProgress: (taskId: string) => Promise<DetectionProgressResponse>;
-  blurCancel: (taskId: string) => Promise<{ status: string }>;
+  runBlurDetectionV2: (photoIds: string[], threshold?: number) => Promise<TaskStartResponse>;
+  blurProgressV2: (taskId: string) => Promise<DetectionProgressResponse>;
+  blurCancelV2: (taskId: string) => Promise<{ status: string }>;
+  runEyeDetection: (photoIds: string[]) => Promise<TaskStartResponse>;
+  eyeProgress: (taskId: string) => Promise<DetectionProgressResponse>;
+  eyeCancel: (taskId: string) => Promise<{ status: string }>;
+  getClosedEyePhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  getClosedEyeCount: () => Promise<EyeClosedCountResponse>;
+  runBurstGrouping: (gapSeconds?: number) => Promise<TaskStartResponse>;
+  burstProgress: (taskId: string) => Promise<DetectionProgressResponse>;
+  burstCancel: (taskId: string) => Promise<{ status: string }>;
+  getBurstGroups: () => Promise<BurstGroupsResponse>;
+  getBurstPhotos: (groupId: string) => Promise<GetPhotosByGroupResponse>;
+  getBurstCount: () => Promise<BurstCountResponse>;
+  getBurstPhotosList: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  analyzeAll: (photoIds?: string[], filterMode?: string) => Promise<TaskStartResponse>;
+  analyzeProgress: (taskId: string) => Promise<DetectionProgressResponse>;
+  getUnprocessedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  getUnprocessedCount: () => Promise<{ count: number }>;
+  getBestPhotosList: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  getBestCount: () => Promise<BestCountResponse>;
+  burstAcceptBest: (groupId: string) => Promise<BurstOpResponse>;
+  burstAcceptAll: (groupId: string) => Promise<BurstOpResponse>;
+  burstRejectAll: (groupId: string) => Promise<BurstOpResponse>;
+  cullAll: () => Promise<TaskStartResponse>;
+  cullProgress: (taskId: string) => Promise<CullProgressResponse>;
   updateRejectStatus: (imageId: string, isRejected: number) => Promise<RejectResponse>;
   getRejectedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getRejectedCount: () => Promise<RejectedCountResponse>;
@@ -194,10 +325,7 @@ export interface ElectronAPI {
   getDuplicatePhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getDuplicateCount: () => Promise<DuplicateCountResponse>;
   getPhotosByGroup: (groupId: string) => Promise<GetPhotosByGroupResponse>;
-  generateSuggestions: (photoIds?: string[]) => Promise<GenerateSuggestionsResponse>;
-  getSuggestedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
-  getSuggestedCount: () => Promise<{ count: number }>;
-  exportStart: (targetFolder: string, mode: string, photoIds?: string[]) => Promise<ExportStartResponse>;
+  exportStart: (targetFolder: string, mode: string, photoIds?: string[], filterMode?: string, nameTemplate?: string, namePrefix?: string, startIndex?: number, exportFormat?: string) => Promise<ExportStartResponse>;
   exportProgress: (exportId: string) => Promise<ExportProgressResponse>;
   exportCancel: (exportId: string) => Promise<{ status: string }>;
   exportSummary: (exportId: string) => Promise<ExportSummaryResponse>;

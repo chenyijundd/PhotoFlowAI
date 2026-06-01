@@ -4,25 +4,27 @@
  * Displays a single photo thumbnail with filename, dimensions,
  * and actual star rating from the database.
  *
+ * Supports batch multi-select via Ctrl+Click (toggle) and
+ * Shift+Click (range).  Regular click sets single selection
+ * and updates the detail panel.
+ *
  * Performance (Task 14):
  *   - True lazy loading via IntersectionObserver (only loads near viewport)
  *   - decoding="async" for off-main-thread decode
  *   - React.memo with custom comparator for precise re-render control
- *   - Tracks loaded state for PerformanceOverlay
  */
 
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useState } from "react";
 import type { PhotoInfo } from "../../types";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
+import { useBatchSelection } from "../context/BatchSelectionContext";
 import { useIntersectionObserver } from "../hooks/useIntersectionObserver";
-import {
-  incrementLoadedThumbnails,
-  decrementLoadedThumbnails,
-} from "./PerformanceOverlay";
 
 interface ImageCardProps {
   photo: PhotoInfo;
   style?: React.CSSProperties;
+  /** Whether this photo is in the batch multi-selection. */
+  isBatchSelected: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -39,10 +41,17 @@ function thumbnailSrc(photo: PhotoInfo): string {
 }
 
 const ImageCard: React.FC<ImageCardProps> = React.memo(
-  ({ photo, style }) => {
+  ({ photo, style, isBatchSelected }) => {
     const { selectedId, selectPhoto } = usePhotoSelection();
+    const {
+      toggleSelect,
+      rangeSelectTo,
+      selectSingle,
+      setAnchor,
+      selectionCount,
+    } = useBatchSelection();
     const imgSrc = thumbnailSrc(photo);
-    const isSelected = selectedId === photo.image_id;
+    const isDetailSelected = selectedId === photo.image_id;
 
     // True lazy loading via IntersectionObserver
     const { ref: lazyRef, isIntersecting } = useIntersectionObserver({
@@ -53,37 +62,60 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
 
     const [imgLoaded, setImgLoaded] = useState(false);
 
-    const handleClick = useCallback(() => {
-      selectPhoto(photo.image_id);
-    }, [photo.image_id, selectPhoto]);
+    const handleClick = useCallback(
+      (e: React.MouseEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl+Click → toggle this photo in batch selection
+          e.preventDefault();
+          toggleSelect(photo.image_id);
+          // Also update detail panel to this photo
+          selectPhoto(photo.image_id);
+        } else if (e.shiftKey && selectionCount > 0) {
+          // Shift+Click → select range
+          e.preventDefault();
+          // We need the ordered list of visible photo IDs for range calc.
+          // This is passed via a data attribute on the grid container.
+          rangeSelectTo(photo.image_id, getVisibleOrderedIds());
+          selectPhoto(photo.image_id);
+        } else {
+          // Regular click → single select + show detail
+          selectSingle(photo.image_id);
+          selectPhoto(photo.image_id);
+        }
+      },
+      [photo.image_id, toggleSelect, rangeSelectTo, selectSingle, selectPhoto, selectionCount],
+    );
 
     const handleImgLoad = useCallback(() => {
       setImgLoaded(true);
-      if (process.env.NODE_ENV === "development") {
-        incrementLoadedThumbnails();
-      }
     }, []);
 
     const handleImgError = useCallback(() => {
       setImgLoaded(true); // Stop showing placeholder loading state
     }, []);
 
-    // Cleanup on unmount for dev overlay tracking
-    useEffect(() => {
-      return () => {
-        if (imgLoaded && process.env.NODE_ENV === "development") {
-          decrementLoadedThumbnails();
-        }
-      };
-    }, [imgLoaded]);
+    const showCheckbox = selectionCount > 0;
 
     return (
       <div
         ref={lazyRef}
-        className={`photo-card${isSelected ? " photo-card-selected" : ""}`}
+        className={`photo-card${isDetailSelected ? " photo-card-selected" : ""}${isBatchSelected ? " photo-card-batch-selected" : ""}${showCheckbox ? " photo-card-multiselect" : ""}`}
         style={style}
         onClick={handleClick}
       >
+        {/* Selection checkbox overlay — shown when any photos are selected */}
+        {showCheckbox && (
+          <div
+            className={`photo-card-check${isBatchSelected ? " photo-card-check--on" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelect(photo.image_id);
+            }}
+          >
+            {isBatchSelected ? "✓" : ""}
+          </div>
+        )}
+
         <div className="photo-card-thumb">
           {imgSrc && isIntersecting ? (
             <>
@@ -96,19 +128,23 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
                 onLoad={handleImgLoad}
                 onError={handleImgError}
               />
-              {photo.is_blur === 1 && (
-                <div className="photo-card-blur-badge">BLUR</div>
-              )}
+              {/* Detection badges follow cascade priority: only the highest-priority
+                   problem is shown per photo (closed_eye > blur > burst > dup > best).
+                   REJECT is a user action, shown independently. */}
+              {/* Badge priority: defect(L1/L2) > best > group */}
+              {photo.is_closed_eye === 1 ? (
+                <div className="photo-card-eye-badge">闭眼</div>
+              ) : photo.is_blur === 1 ? (
+                <div className="photo-card-blur-badge">模糊</div>
+              ) : (photo.is_best_in_burst === 1 || photo.is_best_in_duplicate === 1) ? (
+                <div className="photo-card-best-badge">最佳</div>
+              ) : photo.burst_group ? (
+                <div className="photo-card-burst-badge">连拍</div>
+              ) : photo.is_duplicate === 1 ? (
+                <div className="photo-card-dup-badge">重复</div>
+              ) : null}
               {photo.is_rejected === 1 && (
-                <div className="photo-card-reject-badge">REJECT</div>
-              )}
-              {photo.is_duplicate === 1 && (
-                <div className="photo-card-dup-badge">DUP</div>
-              )}
-              {photo.ai_suggestion && (
-                <div className="photo-card-ai-badge">
-                  AI: {photo.ai_suggestion === "POSSIBLE_BEST" ? "BEST" : photo.ai_suggestion === "POSSIBLE_BLUR" ? "BLUR" : "DUP"}
-                </div>
+                <div className="photo-card-reject-badge">废片</div>
               )}
             </>
           ) : (
@@ -141,14 +177,36 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
       prevPhoto.star_rating === nextPhoto.star_rating &&
       prevPhoto.is_rejected === nextPhoto.is_rejected &&
       prevPhoto.is_blur === nextPhoto.is_blur &&
+      prevPhoto.is_closed_eye === nextPhoto.is_closed_eye &&
       prevPhoto.is_duplicate === nextPhoto.is_duplicate &&
       prevPhoto.duplicate_group === nextPhoto.duplicate_group &&
-      prevPhoto.ai_suggestion === nextPhoto.ai_suggestion &&
+      prevPhoto.burst_group === nextPhoto.burst_group &&
+      prevPhoto.is_best_in_burst === nextPhoto.is_best_in_burst &&
+      prevPhoto.is_best_in_duplicate === nextPhoto.is_best_in_duplicate &&
+      prevProps.isBatchSelected === nextProps.isBatchSelected &&
       prevProps.style === nextProps.style
     );
   },
 );
 
 ImageCard.displayName = "ImageCard";
+
+// ---------------------------------------------------------------------------
+// Helper: get the ordered list of visible photo IDs from the DOM for
+// Shift+Click range calculation.  Stored as a data attribute on the grid
+// container by ImageGrid.
+// ---------------------------------------------------------------------------
+
+function getVisibleOrderedIds(): string[] {
+  const el = document.querySelector("[data-photo-ids]");
+  if (!el) return [];
+  const raw = el.getAttribute("data-photo-ids");
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw.split(",");
+  }
+}
 
 export default ImageCard;

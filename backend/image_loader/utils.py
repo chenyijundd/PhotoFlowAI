@@ -14,10 +14,18 @@ from typing import Generator, Optional
 
 from PIL import Image
 
+# Register HEIC/HEIF support with Pillow (one-time, at import)
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass  # pillow-heif not installed — HEIC files will be skipped
+
 from .models import PhotoInfo
+from backend.raw_preview.extractor import RAW_EXTENSIONS, is_raw_file, get_raw_dimensions
 
 # Supported image formats (lowercase, without dot)
-SUPPORTED_FORMATS: frozenset = frozenset({"jpg", "jpeg", "png"})
+SUPPORTED_FORMATS: frozenset = frozenset({"jpg", "jpeg", "png", "heic", "heif"}).union(RAW_EXTENSIONS)
 
 
 def is_supported_format(file_path: str) -> bool:
@@ -34,11 +42,19 @@ def generate_file_id(file_path: str, input_dir: str = "") -> str:
 
 def safe_get_image_size(file_path: str) -> tuple[int, int]:
     """
-    Safely read image dimensions using Pillow's lazy header parsing.
+    Safely read image dimensions.
+
+    For regular images, uses Pillow's lazy header parsing.
+    For RAW files, uses rawpy to read the metadata header.
 
     Returns (width, height) or (0, 0) if the file is corrupted or
-    cannot be read. Does NOT load pixel data into memory.
+    cannot be read. Does NOT load full pixel data into memory.
     """
+    # RAW files: use rawpy metadata (fast, no pixel decode)
+    if is_raw_file(file_path):
+        return get_raw_dimensions(file_path)
+
+    # Regular images: use Pillow
     try:
         with Image.open(file_path) as img:
             return img.size

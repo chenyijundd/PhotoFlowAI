@@ -9,7 +9,7 @@
  *   Z         → toggle FIT / 100% zoom
  *   ← / →     → previous / next photo
  *   Space     → toggle star
- *   X         → toggle reject
+ *   D         → toggle reject
  *
  * Mouse: scroll wheel adjusts zoom scale in 100% mode.
  *        drag to pan when zoomed in (100% mode).
@@ -66,6 +66,8 @@ const LightboxPage: React.FC = () => {
 
         case "z":
         case "Z":
+          // Don't consume Ctrl+Z / Cmd+Z — let undo/redo handler take it
+          if (e.ctrlKey || e.metaKey) return false;
           e.preventDefault();
           setZoomMode(zoomMode === "fit" ? "zoom100" : "fit");
           return true;
@@ -85,8 +87,8 @@ const LightboxPage: React.FC = () => {
           toggleStar();
           return true;
 
-        case "x":
-        case "X":
+        case "d":
+        case "D":
           e.preventDefault();
           toggleReject();
           return true;

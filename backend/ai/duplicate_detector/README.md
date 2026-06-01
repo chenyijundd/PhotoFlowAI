@@ -2,6 +2,11 @@
 
 检测重复照片（相似图片 + 连拍去重），基于 **Perceptual Hash (phash)** 算法。
 
+> **Pipeline role (L4 — last detection step)**: Runs last in the cascade.
+> Only photos not already classified as closed-eye, blurry, or burst are
+> checked for duplicates. This avoids redundant detection and ensures
+> each photo has a single primary label.
+
 ## Perceptual Hash 原理
 
 [pHash](https://en.wikipedia.org/wiki/Perceptual_hashing) 是一种感知哈希算法，通过以下步骤为每张图片生成一个 64-bit 指纹：
