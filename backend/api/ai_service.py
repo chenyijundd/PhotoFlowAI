@@ -324,6 +324,21 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
     blurry_ids: set[str] = set()
     burst_ids: set[str] = set()
 
+    # ---- Pre-query already-analysed photos (incremental skip) ----
+    # Photos that already have per‑step results from a previous run
+    # are skipped so re‑analysis only processes NEW / CHANGED photos.
+    all_db = repo.get_all_photos()
+    already_eye_analysed: set[str] = {
+        p.image_id for p in all_db if p.eye_score is not None
+    }
+    already_blur_analysed: set[str] = {
+        p.image_id for p in all_db if p.blur_score is not None
+    }
+    logger.info(
+        "Incremental skip: eye=%d already analysed, blur=%d already analysed",
+        len(already_eye_analysed), len(already_blur_analysed),
+    )
+
     for step_key, phase_label, start_fn, progress_fn, extra_kwargs in steps:
         if state.get("cancelled"):
             state["status"] = "cancelled"
@@ -346,12 +361,19 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
             continue
 
         # ---- Cumulate skip_ids for this step ----
-        # closed_eye → skip from blur, burst, dup
-        # blurry     → skip from burst, dup
-        # burst      → skip from dup
+        # Cascade skips (severity-based):
+        #   closed_eye → skip from blur, burst, dup
+        #   blurry     → skip from burst, dup
+        #   burst      → skip from dup
+        #
+        # Incremental skips (already analysed):
+        #   eye_score IS NOT NULL  → skip from eye
+        #   blur_score IS NOT NULL → skip from blur
         step_skip_ids: set[str] = set()
-        if step_key == "blur":
-            step_skip_ids = closed_eye_ids
+        if step_key == "eye":
+            step_skip_ids = already_eye_analysed
+        elif step_key == "blur":
+            step_skip_ids = closed_eye_ids | already_blur_analysed
         elif step_key == "burst":
             step_skip_ids = closed_eye_ids | blurry_ids
         elif step_key == "dup":

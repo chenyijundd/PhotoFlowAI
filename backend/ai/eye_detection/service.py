@@ -88,7 +88,11 @@ def _worker_count() -> int:
     return max(2, min(cpu, 8))  # MediaPipe is CPU-bound, cap at 8
 
 
-def _run_eye_loop(task_id: str, photo_ids: list[str]) -> None:
+def _run_eye_loop(
+    task_id: str,
+    photo_ids: list[str],
+    skip_ids: set[str] | None = None,
+) -> None:
     """Run eye detection in a background thread with parallel workers.
 
     Pipeline:
@@ -96,6 +100,13 @@ def _run_eye_loop(task_id: str, photo_ids: list[str]) -> None:
       2. Split into chunks and distribute across worker threads.
       3. Each worker loads the image, downscales, runs MediaPipe.
       4. Main thread writes results to SQLite (single-threaded).
+
+    Args:
+        task_id: Unique task identifier for progress polling.
+        photo_ids: List of image_id values to process.
+        skip_ids: Optional set of image_id values to skip (counted toward
+            progress but not actually processed).  Used for photos that
+            already have eye detection results from a previous run.
     """
     from database.repository import PhotoRepository
 
@@ -105,13 +116,16 @@ def _run_eye_loop(task_id: str, photo_ids: list[str]) -> None:
     if not state:
         return
 
+    _skip = skip_ids or set()
+
     total = len(photo_ids)
     state["total"] = total
     state["phase"] = "Step 1/5: 闭眼检测 — 并行处理中"
     workers = _worker_count()
 
     logger.info(
-        "=== Eye Detection Start === total=%d workers=%d", total, workers,
+        "=== Eye Detection Start === total=%d skip=%d workers=%d",
+        total, len(_skip), workers,
     )
 
     # ---- Collect photos to process ----
@@ -125,6 +139,13 @@ def _run_eye_loop(task_id: str, photo_ids: list[str]) -> None:
                 "Eye detection %s cancelled before start", task_id,
             )
             return
+
+        # Already has eye results → skip
+        if image_id in _skip:
+            state["processed"] += 1
+            state["progress"] = state["processed"]
+            state["current_file"] = image_id
+            continue
 
         photo = repo.get_photo_by_id(image_id)
         if photo is None:
@@ -247,8 +268,17 @@ def _run_eye_loop(task_id: str, photo_ids: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def start_eye_detection(photo_ids: list[str]) -> str:
-    """Start eye detection in a background thread. Returns task_id."""
+def start_eye_detection(
+    photo_ids: list[str],
+    skip_ids: set[str] | None = None,
+) -> str:
+    """Start eye detection in a background thread. Returns task_id.
+
+    Args:
+        photo_ids: List of image_id values to process.
+        skip_ids: Optional set of image_id values to skip (e.g. photos
+            that already have eye detection results).
+    """
     task_id = uuid.uuid4().hex[:8]
 
     state = {
@@ -268,7 +298,7 @@ def start_eye_detection(photo_ids: list[str]) -> str:
 
     t = threading.Thread(
         target=_run_eye_loop,
-        args=(task_id, photo_ids),
+        args=(task_id, photo_ids, skip_ids),
         daemon=True,
     )
     t.start()
