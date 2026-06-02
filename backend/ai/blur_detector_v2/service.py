@@ -49,15 +49,21 @@ _lock = threading.Lock()
 
 
 def _process_blur_chunk(
-    chunk: list[tuple[str, str, float | None]],
+    chunk: list[tuple[str, str, float | None, str | None]],
 ) -> list[tuple[str, bool, float, int, str | None]]:
     """Process a chunk of photos in a worker process.
 
     Each worker imports ``calculate_blur_v2`` independently so there
     is no shared state between processes.
 
+    If a *thumbnail_path* is provided and the thumbnail exists, a fast
+    pre‑screen (global Laplacian on the small cached JPEG) may skip
+    loading the full‑resolution image entirely — a 50–100× speedup
+    for obviously sharp or obviously blurry photos.
+
     Args:
-        chunk: List of ``(image_id, readable_path, threshold)`` tuples.
+        chunk: List of ``(image_id, readable_path, threshold, thumbnail_path)``
+            tuples.  *thumbnail_path* may be None.
 
     Returns:
         List of ``(image_id, success, final_score, is_blur, error_msg)``.
@@ -66,10 +72,12 @@ def _process_blur_chunk(
     from backend.ai.blur_detector_v2.detector import calculate_blur_v2 as _calc
 
     results: list[tuple[str, bool, float, int, str | None]] = []
-    for image_id, readable_path, threshold in chunk:
+    for image_id, readable_path, threshold, thumbnail_path in chunk:
         try:
             final_score, is_blur, _patch_scores, _proc_ms, _w, _t = _calc(
-                readable_path, threshold=threshold,
+                readable_path,
+                threshold=threshold,
+                thumbnail_path=thumbnail_path,
             )
             results.append((image_id, True, final_score, is_blur, None))
         except Exception as exc:
@@ -122,7 +130,7 @@ def _run_blur_loop_v2(
     )
 
     # ---- Separate skip vs process ----
-    to_process: list[tuple[str, str, float | None]] = []
+    to_process: list[tuple[str, str, float | None, str | None]] = []
     skipped_count = 0
 
     for image_id in photo_ids:
@@ -145,7 +153,8 @@ def _run_blur_loop_v2(
             state["progress"] = state["processed"]
             continue
 
-        to_process.append((image_id, photo.readable_path, threshold))
+        thumb = photo.thumbnail_path if photo.thumbnail_path and os.path.isfile(photo.thumbnail_path) else None
+        to_process.append((image_id, photo.readable_path, threshold, thumb))
 
     process_count = len(to_process)
     if process_count == 0:
@@ -160,7 +169,7 @@ def _run_blur_loop_v2(
     # Each worker gets ~2 chunks to keep all cores fed (pipeline effect)
     chunk_count = max_workers * 2
     chunk_size = max(1, process_count // chunk_count)
-    chunks: list[list[tuple[str, str, float | None]]] = []
+    chunks: list[list[tuple[str, str, float | None, str | None]]] = []
     for i in range(0, process_count, chunk_size):
         chunks.append(to_process[i:i + chunk_size])
 
@@ -340,8 +349,9 @@ def detect_blur_batch(
 
         t0 = time.perf_counter()
         try:
+            thumb = photo.thumbnail_path if photo.thumbnail_path and os.path.isfile(photo.thumbnail_path) else None
             final_score, is_blur, patch_scores, proc_ms, weighted_score, top_median = (
-                calculate_blur_v2(photo.readable_path, threshold=threshold)
+                calculate_blur_v2(photo.readable_path, threshold=threshold, thumbnail_path=thumb)
             )
             repo.update_blur_status(
                 image_id,

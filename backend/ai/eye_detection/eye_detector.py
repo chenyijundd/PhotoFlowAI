@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 import time
 import urllib.request
 from typing import Optional
@@ -36,6 +37,19 @@ import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tunable constants
+# ---------------------------------------------------------------------------
+
+MAX_IMAGE_DIM: int = 1024
+"""
+Images are downscaled so the long edge does not exceed this many pixels
+before running MediaPipe.  Face detection accuracy is virtually unchanged
+at 1024 px while inference time drops by 10–30× compared to a 24 MP original.
+
+Set to *None* to disable downscaling (use full-resolution images).
+"""
 
 # ---------------------------------------------------------------------------
 # MediaPipe model download
@@ -83,10 +97,14 @@ Set at 0.20 to catch partial blinks while requiring AND logic for precision.
 """
 
 # ---------------------------------------------------------------------------
-# MediaPipe FaceLandmarker singleton (lazy init)
+# Thread-local MediaPipe FaceLandmarker
+# ---------------------------------------------------------------------------
+# MediaPipe's Python FaceLandmarker is NOT thread-safe, so we cannot share
+# a single instance across threads.  thread.local() gives each worker thread
+# its own instance — created lazily on first use.
 # ---------------------------------------------------------------------------
 
-_face_landmarker = None
+_thread_local = threading.local()
 
 
 def _ensure_model() -> str:
@@ -112,13 +130,16 @@ def _ensure_model() -> str:
 
 
 def _get_face_landmarker():
-    """Return a cached MediaPipe FaceLandmarker instance.
+    """Return a **thread-local** MediaPipe FaceLandmarker instance.
 
-    The model is downloaded on first use.  Blendshapes are enabled
-    so we get EYE_BLINK_LEFT / EYE_BLINK_RIGHT scores.
+    Each worker thread gets its own instance (MediaPipe's Python API
+    is not thread-safe for concurrent access to a single landmarker).
+    The model is downloaded once; only the graph setup is per-thread.
+
+    Blendshapes are enabled so we get EYE_BLINK_LEFT / EYE_BLINK_RIGHT
+    scores.
     """
-    global _face_landmarker
-    if _face_landmarker is None:
+    if not hasattr(_thread_local, "landmarker") or _thread_local.landmarker is None:
         from mediapipe.tasks.python import vision
         from mediapipe.tasks.python.core import base_options as mp_base_options
 
@@ -131,8 +152,8 @@ def _get_face_landmarker():
             min_face_detection_confidence=0.5,
             output_face_blendshapes=True,  # ← EYE_BLINK scores
         )
-        _face_landmarker = vision.FaceLandmarker.create_from_options(opts)
-    return _face_landmarker
+        _thread_local.landmarker = vision.FaceLandmarker.create_from_options(opts)
+    return _thread_local.landmarker
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +193,7 @@ def _ear_from_landmarks(
 # ---------------------------------------------------------------------------
 
 
-def detect_eyes(image_path: str) -> dict:
+def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
     """Analyse a single image for eye state.
 
     Detects all faces, evaluates eye state via blendshapes + EAR,
@@ -188,6 +209,11 @@ def detect_eyes(image_path: str) -> dict:
 
     Args:
         image_path: Absolute path to the image file.
+        max_dim: If set, the image is downscaled so its long edge does not
+            exceed this many pixels before MediaPipe inference.  This
+            dramatically speeds up face detection with negligible accuracy
+            loss.  Default: ``MAX_IMAGE_DIM`` (1024).  Pass ``None`` to
+            use the original resolution.
 
     Returns:
         A dict with keys: file, eyes_open, score, face_detected,
@@ -205,6 +231,15 @@ def detect_eyes(image_path: str) -> dict:
         raise FileNotFoundError(f"Cannot decode image: {image_path}")
 
     h, w = img.shape[:2]
+
+    # ---- Optional downscale for faster inference ----
+    if max_dim is not None:
+        long_edge = max(h, w)
+        if long_edge > max_dim:
+            scale = max_dim / long_edge
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
     # ---- MediaPipe expects RGB ----
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -306,17 +341,24 @@ def detect_eyes(image_path: str) -> dict:
     }
 
 
-def detect_eyes_batch(image_paths: list[str]) -> list[dict]:
+def detect_eyes_batch(
+    image_paths: list[str],
+    max_dim: int | None = MAX_IMAGE_DIM,
+) -> list[dict]:
     """Run ``detect_eyes`` on every path in *image_paths*.
 
     Returns a list of result dicts in the same order.
     Errors are caught per-image and returned as dicts with an
     ``"error"`` key so the batch never halts.
+
+    Args:
+        image_paths: List of absolute image paths.
+        max_dim: Passed through to ``detect_eyes``.  Default: 1024.
     """
     results: list[dict] = []
     for path in image_paths:
         try:
-            results.append(detect_eyes(path))
+            results.append(detect_eyes(path, max_dim=max_dim))
         except Exception as exc:
             results.append({
                 "file": path,

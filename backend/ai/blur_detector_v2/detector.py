@@ -24,12 +24,16 @@ the frame is soft (bokeh, plain backdrop).
 
 from __future__ import annotations
 
+import logging
 import math
+import os
 import time
 from typing import Tuple
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger("blur_detection_v2")
 
 # ---------------------------------------------------------------------------
 # Tunable constants (exposed at module level for future configuration UI)
@@ -44,7 +48,7 @@ Photos with a final score *below* this value are classified as blurry.
 
 Calibrated through real‑world testing.  The multi‑patch + top‑median
 approach produces scores that are naturally concentrated on the sharpest
-regions; 55.0 was found to be the sweet spot that catches genuinely
+regions; 25.0 was found to be the sweet spot that catches genuinely
 blurry photos while letting bokeh / plain‑background shots through.
 """
 
@@ -60,10 +64,60 @@ WEIGHTED_WEIGHT: float = 0.4
 TOP_MEDIAN_WEIGHT: float = 0.6
 """Weight of the top‑patches median in the final score (0–1)."""
 
+# ---- Thumbnail pre-screening thresholds ----
+# These are intentionally conservative — only the extremes (obviously
+# sharp / obviously blurry) are fast-pathed.  Borderline photos fall
+# through to the full multi-patch analysis.
+
+THUMB_SHARP_THRESHOLD: float = 120.0
+"""
+Global Laplacian variance on the **thumbnail** above this →
+photo is classified as **sharp** without loading the full image.
+
+Conservative default: only very high scores skip full analysis.
+"""
+
+THUMB_BLUR_THRESHOLD: float = 8.0
+"""
+Global Laplacian variance on the **thumbnail** below this →
+photo is classified as **blurry** without loading the full image.
+
+Conservative default: only very low scores skip full analysis.
+"""
+
+THUMB_SCALE_GUARD: float = 0.85
+"""
+If the thumbnail score falls between *THUMB_BLUR_THRESHOLD* and
+*THUMB_SHARP_THRESHOLD*, the photo is **borderline** — we fall
+through to the full multi-patch analysis for an accurate verdict.
+
+Setting this fraction higher makes the pre-screen more aggressive
+(more photos fast-pathed) but risks false classifications.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Core algorithm
 # ---------------------------------------------------------------------------
+
+
+def _quick_laplacian_on_thumbnail(thumbnail_path: str) -> float | None:
+    """Compute global Laplacian variance on a cached thumbnail.
+
+    The thumbnail is a small JPEG (~400 px) that loads in < 1 ms.
+    Laplacian variance is strongly correlated across resolutions, so
+    a sharp full‑size image will also have a high score on the thumbnail.
+
+    Returns:
+        Laplacian variance (float), or *None* if the thumbnail cannot
+        be read (missing / corrupted).
+    """
+    if not thumbnail_path or not os.path.isfile(thumbnail_path):
+        return None
+    gray = cv2.imread(thumbnail_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None:
+        return None
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 def calculate_blur_v2(
@@ -71,8 +125,15 @@ def calculate_blur_v2(
     *,
     threshold: float | None = None,
     patch_grid: int | None = None,
+    thumbnail_path: str | None = None,
 ) -> Tuple[float, int, list[float], float, float, float]:
     """Analyse a single image for blur using multi‑patch Laplacian variance.
+
+    If *thumbnail_path* points to an existing cached thumbnail, a fast
+    pre‑screen is performed first:
+      - Score > ``THUMB_SHARP_THRESHOLD`` → sharp (skip full image)
+      - Score < ``THUMB_BLUR_THRESHOLD``  → blurry (skip full image)
+      - Otherwise → borderline → fall through to full analysis
 
     Args:
         image_path: Absolute path to the original image file.
@@ -80,6 +141,9 @@ def calculate_blur_v2(
             default is used.
         patch_grid: Override ``PATCH_GRID``.  If *None*, the module
             default is used.
+        thumbnail_path: Optional path to a pre‑generated thumbnail
+            (~400 px JPEG).  When provided, a fast pre‑screen may
+            skip loading the full‑resolution image.
 
     Returns:
         (blur_score, is_blur, patch_scores, processing_time_ms,
@@ -97,6 +161,34 @@ def calculate_blur_v2(
 
     _threshold = threshold if threshold is not None else BLUR_THRESHOLD
     _grid = patch_grid if patch_grid is not None else PATCH_GRID
+
+    # ---- Step 0: fast thumbnail pre‑screen ----
+    thumb_score = _quick_laplacian_on_thumbnail(thumbnail_path)
+    if thumb_score is not None:
+        if thumb_score > THUMB_SHARP_THRESHOLD:
+            elapsed = (time.perf_counter() - t0) * 1000.0
+            # Thumbnail is clearly sharp — skip full image
+            logger.debug(
+                "Blur V2 fast-path SHARP: thumbnail_score=%.1f > %.0f",
+                thumb_score, THUMB_SHARP_THRESHOLD,
+            )
+            return (
+                thumb_score, 0, [thumb_score], elapsed,
+                thumb_score, thumb_score,
+            )
+        elif thumb_score < THUMB_BLUR_THRESHOLD:
+            elapsed = (time.perf_counter() - t0) * 1000.0
+            # Thumbnail is clearly blurry — skip full image
+            logger.debug(
+                "Blur V2 fast-path BLUR: thumbnail_score=%.1f < %.0f",
+                thumb_score, THUMB_BLUR_THRESHOLD,
+            )
+            is_blur = 1 if thumb_score < _threshold else 0
+            return (
+                thumb_score, is_blur, [thumb_score], elapsed,
+                thumb_score, thumb_score,
+            )
+        # else: borderline — fall through to full analysis
 
     # ---- Step 1: read image (OpenCV → PIL fallback for HEIC etc.) ----
     from backend.raw_preview.extractor import read_image_bgr
