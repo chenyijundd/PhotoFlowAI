@@ -425,11 +425,15 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
         elif step_key == "burst":
             # Clear burst_group for photos that are closed-eye or blurry —
             # they should not appear in burst groups per cascade design.
-            for skip_id in closed_eye_ids | blurry_ids:
-                try:
-                    repo.clear_burst_group(skip_id)
-                except Exception:
-                    pass  # photo may not have a burst_group
+            # Use batch transaction: N updates in 1 commit instead of N commits.
+            skip_burst = closed_eye_ids | blurry_ids
+            if skip_burst:
+                with repo.batch_transaction():
+                    for skip_id in skip_burst:
+                        try:
+                            repo.clear_burst_group(skip_id)
+                        except Exception:
+                            pass  # photo may not have a burst_group
             # Collect burst IDs from remaining photos (not closed-eye, not blurry)
             burst_ids = {
                 p.image_id for p in repo.get_all_photos()
@@ -441,8 +445,9 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
     # ---- Mark all analysed photos so the next run only picks up new ones ----
     if total_photos > 0 and not state.get("cancelled"):
         try:
-            for image_id in all_ids:
-                repo.mark_analyzed(image_id)
+            with repo.batch_transaction():
+                for image_id in all_ids:
+                    repo.mark_analyzed(image_id)
             logger.info("Marked %d photos as analysed", total_photos)
         except Exception as exc:
             logger.error("Failed to mark analysed_at: %s", exc)

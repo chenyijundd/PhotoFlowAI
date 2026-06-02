@@ -584,20 +584,21 @@ def _run_cull_all(task_id: str):
     # ---- Step 1: Reject closed-eye photos (L1: fatal) ----
     state["phase"] = "步骤 1/5: 闭眼照片"
     scanned = 0
-    for p in all_photos:
-        if state.get("cancelled"):
-            state["status"] = "cancelled"
-            return
-        scanned += 1
-        if scanned % 50 == 0:
-            state["progress"] = scanned
-            state["total"] = total_photos
-        if p.image_id in starred_ids or p.image_id in manually_operated_ids:
-            continue
-        if p.is_closed_eye == 1 and p.is_rejected != 1:
-            repo.update_reject_status(p.image_id, 1)
-            eye_closed_rejected += 1
-            processed.add(p.image_id)
+    with repo.batch_transaction():
+        for p in all_photos:
+            if state.get("cancelled"):
+                state["status"] = "cancelled"
+                return
+            scanned += 1
+            if scanned % 50 == 0:
+                state["progress"] = scanned
+                state["total"] = total_photos
+            if p.image_id in starred_ids or p.image_id in manually_operated_ids:
+                continue
+            if p.is_closed_eye == 1 and p.is_rejected != 1:
+                repo.update_reject_status(p.image_id, 1)
+                eye_closed_rejected += 1
+                processed.add(p.image_id)
     state["progress"] = total_photos
 
     # ---- Step 2: Count blur photos (L2: flagged, NOT auto-rejected) ----
@@ -622,34 +623,35 @@ def _run_cull_all(task_id: str):
     state["progress"] = step3_base
     state["total"] = step3_total
     burst_processed_cnt = 0
-    for gid in group_ids:
-        if state.get("cancelled"):
-            state["status"] = "cancelled"
-            return
-        group_photos = repo.get_burst_group_photos(gid)
-        for p in group_photos:
-            burst_processed_cnt += 1
-            if burst_processed_cnt % 20 == 0:
-                state["progress"] = step3_base + burst_processed_cnt
-                state["total"] = step3_total
-            if p.image_id in starred_ids or p.image_id in manually_operated_ids:
-                continue
-            # Skip already rejected photos (closed-eye)
-            if p.image_id in processed:
-                continue
-            # Safety: exclude closed-eye from burst best recommendation
-            if p.is_closed_eye == 1:
-                continue
-            if p.is_best_in_burst == 1:
-                if p.star_rating != 1:
-                    repo.update_star_rating(p.image_id, 1)
-                    burst_accepted += 1
-                    processed.add(p.image_id)
-            else:
-                if p.is_rejected != 1:
-                    repo.update_reject_status(p.image_id, 1)
-                    burst_rejected += 1
-                    processed.add(p.image_id)
+    with repo.batch_transaction():
+        for gid in group_ids:
+            if state.get("cancelled"):
+                state["status"] = "cancelled"
+                return
+            group_photos = repo.get_burst_group_photos(gid)
+            for p in group_photos:
+                burst_processed_cnt += 1
+                if burst_processed_cnt % 20 == 0:
+                    state["progress"] = step3_base + burst_processed_cnt
+                    state["total"] = step3_total
+                if p.image_id in starred_ids or p.image_id in manually_operated_ids:
+                    continue
+                # Skip already rejected photos (closed-eye)
+                if p.image_id in processed:
+                    continue
+                # Safety: exclude closed-eye from burst best recommendation
+                if p.is_closed_eye == 1:
+                    continue
+                if p.is_best_in_burst == 1:
+                    if p.star_rating != 1:
+                        repo.update_star_rating(p.image_id, 1)
+                        burst_accepted += 1
+                        processed.add(p.image_id)
+                else:
+                    if p.is_rejected != 1:
+                        repo.update_reject_status(p.image_id, 1)
+                        burst_rejected += 1
+                        processed.add(p.image_id)
     state["progress"] = step3_total if total_burst else step3_base
     state["total"] = step3_total if total_burst else step3_base
 
@@ -663,44 +665,45 @@ def _run_cull_all(task_id: str):
     step4_base = state["progress"]
     step4_total = step4_base + dup_total
     state["total"] = step4_total
-    for dg in dup_groups:
-        if state.get("cancelled"):
-            state["status"] = "cancelled"
-            return
-        group_photos = repo.get_photos_by_duplicate_group(dg["duplicate_group"])
-        # Exclude already processed (closed-eye rejected, burst handled),
-        # starred, and manually operated photos.
-        candidates = [
-            p for p in group_photos
-            if p.image_id not in processed
-            and p.image_id not in starred_ids
-            and p.image_id not in manually_operated_ids
-        ]
-        if len(candidates) <= 1:
-            dup_scanned += len(group_photos)
-            continue
-        # Find the best-in-duplicate (set by analyse phase)
-        best = next((p for p in candidates if p.is_best_in_duplicate == 1), None)
-        if best is None:
-            # Fallback: pick by blur_score (shouldn't happen if analyse ran)
-            candidates.sort(key=lambda p: p.blur_score or 0, reverse=True)
-            best = candidates[0]
-        duplicate_best_kept += 1
-        # Reject the rest
-        for p in candidates:
-            dup_scanned += 1
-            if dup_scanned % 20 == 0:
-                state["progress"] = step4_base + dup_scanned
-                state["total"] = step4_total
-            if p.image_id == best.image_id:
-                if p.star_rating != 1:
-                    repo.update_star_rating(p.image_id, 1)
-                    processed.add(p.image_id)
+    with repo.batch_transaction():
+        for dg in dup_groups:
+            if state.get("cancelled"):
+                state["status"] = "cancelled"
+                return
+            group_photos = repo.get_photos_by_duplicate_group(dg["duplicate_group"])
+            # Exclude already processed (closed-eye rejected, burst handled),
+            # starred, and manually operated photos.
+            candidates = [
+                p for p in group_photos
+                if p.image_id not in processed
+                and p.image_id not in starred_ids
+                and p.image_id not in manually_operated_ids
+            ]
+            if len(candidates) <= 1:
+                dup_scanned += len(group_photos)
                 continue
-            if p.is_rejected != 1:
-                repo.update_reject_status(p.image_id, 1)
-                duplicate_rejected += 1
-                processed.add(p.image_id)
+            # Find the best-in-duplicate (set by analyse phase)
+            best = next((p for p in candidates if p.is_best_in_duplicate == 1), None)
+            if best is None:
+                # Fallback: pick by blur_score (shouldn't happen if analyse ran)
+                candidates.sort(key=lambda p: p.blur_score or 0, reverse=True)
+                best = candidates[0]
+            duplicate_best_kept += 1
+            # Reject the rest
+            for p in candidates:
+                dup_scanned += 1
+                if dup_scanned % 20 == 0:
+                    state["progress"] = step4_base + dup_scanned
+                    state["total"] = step4_total
+                if p.image_id == best.image_id:
+                    if p.star_rating != 1:
+                        repo.update_star_rating(p.image_id, 1)
+                        processed.add(p.image_id)
+                    continue
+                if p.is_rejected != 1:
+                    repo.update_reject_status(p.image_id, 1)
+                    duplicate_rejected += 1
+                    processed.add(p.image_id)
     state["progress"] = step4_total if dup_total else step4_base
     state["total"] = step4_total if dup_total else step4_base
 
@@ -716,30 +719,31 @@ def _run_cull_all(task_id: str):
     state["progress"] = state["progress"]
     state["total"] = total_photos * 3  # rough scale for the final scan
     scanned = 0
-    for p in all_photos:
-        if state.get("cancelled"):
-            state["status"] = "cancelled"
-            return
-        scanned += 1
-        if scanned % 50 == 0:
-            state["progress"] = state["progress"] + scanned
-        if p.image_id in starred_ids or p.image_id in processed or p.image_id in manually_operated_ids:
-            continue
-        # Already rejected (by previous cull or this run) — keep decision
-        if p.is_rejected == 1:
-            continue
-        # Already in a burst or duplicate group — handled by Steps 3 / 4
-        if p.burst_group is not None or p.duplicate_group is not None:
-            continue
-        # Blur photos stay for manual review
-        if p.is_blur == 1:
-            continue
-        # Safety: skip closed-eye (should already be in processed)
-        if p.is_closed_eye == 1:
-            continue
-        repo.update_star_rating(p.image_id, 1)
-        clean_accepted += 1
-        processed.add(p.image_id)
+    with repo.batch_transaction():
+        for p in all_photos:
+            if state.get("cancelled"):
+                state["status"] = "cancelled"
+                return
+            scanned += 1
+            if scanned % 50 == 0:
+                state["progress"] = state["progress"] + scanned
+            if p.image_id in starred_ids or p.image_id in processed or p.image_id in manually_operated_ids:
+                continue
+            # Already rejected (by previous cull or this run) — keep decision
+            if p.is_rejected == 1:
+                continue
+            # Already in a burst or duplicate group — handled by Steps 3 / 4
+            if p.burst_group is not None or p.duplicate_group is not None:
+                continue
+            # Blur photos stay for manual review
+            if p.is_blur == 1:
+                continue
+            # Safety: skip closed-eye (should already be in processed)
+            if p.is_closed_eye == 1:
+                continue
+            repo.update_star_rating(p.image_id, 1)
+            clean_accepted += 1
+            processed.add(p.image_id)
 
     # ---- Final tally ----
     total_accepted = burst_accepted + duplicate_best_kept + clean_accepted

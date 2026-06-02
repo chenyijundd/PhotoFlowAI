@@ -245,22 +245,23 @@ def _run_blur_loop_v2(
                     state["progress"] = state["processed"]
                     continue
 
-                # ---- Write results to DB (single-threaded) ----
-                for image_id, success, final_score, is_blur, error_msg in chunk_results:
-                    if success:
-                        repo.update_blur_status(
-                            image_id, is_blur=is_blur,
-                            blur_score=round(final_score, 2),
-                        )
-                        state["processed"] += 1
-                        if is_blur:
-                            state["blurred"] += 1
-                    else:
-                        state["failed"] += 1
-                        state["processed"] += 1
-                        logger.warning(
-                            "Blur V2: %s failed in worker: %s", image_id, error_msg,
-                        )
+                # ---- Write results to DB (single-threaded, batched per chunk) ----
+                with repo.batch_transaction():
+                    for image_id, success, final_score, is_blur, error_msg in chunk_results:
+                        if success:
+                            repo.update_blur_status(
+                                image_id, is_blur=is_blur,
+                                blur_score=round(final_score, 2),
+                            )
+                            state["processed"] += 1
+                            if is_blur:
+                                state["blurred"] += 1
+                        else:
+                            state["failed"] += 1
+                            state["processed"] += 1
+                            logger.warning(
+                                "Blur V2: %s failed in worker: %s", image_id, error_msg,
+                            )
 
                 completed_in_chunks += 1
                 state["progress"] = state["processed"]

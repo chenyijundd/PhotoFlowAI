@@ -210,23 +210,24 @@ def _run_eye_loop(
                     state["progress"] = state["processed"]
                     continue
 
-                # ---- Write results to DB (single-threaded) ----
-                for image_id, success, eye_score, is_closed_eye, error_msg in chunk_results:
-                    if success:
-                        repo.update_eye_status(
-                            image_id,
-                            is_closed_eye=is_closed_eye,
-                            eye_score=round(eye_score, 4),
-                        )
-                        state["processed"] += 1
-                        if is_closed_eye:
-                            state["closed"] += 1
-                    else:
-                        state["failed"] += 1
-                        state["processed"] += 1
-                        logger.warning(
-                            "Eye: %s failed in worker: %s", image_id, error_msg,
-                        )
+                # ---- Write results to DB (single-threaded, batched per chunk) ----
+                with repo.batch_transaction():
+                    for image_id, success, eye_score, is_closed_eye, error_msg in chunk_results:
+                        if success:
+                            repo.update_eye_status(
+                                image_id,
+                                is_closed_eye=is_closed_eye,
+                                eye_score=round(eye_score, 4),
+                            )
+                            state["processed"] += 1
+                            if is_closed_eye:
+                                state["closed"] += 1
+                        else:
+                            state["failed"] += 1
+                            state["processed"] += 1
+                            logger.warning(
+                                "Eye: %s failed in worker: %s", image_id, error_msg,
+                            )
 
                 completed_chunks += 1
                 state["progress"] = state["processed"]

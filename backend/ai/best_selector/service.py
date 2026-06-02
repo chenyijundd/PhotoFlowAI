@@ -49,28 +49,29 @@ def select_best_for_all_bursts(repo: "PhotoRepository") -> BestSelectionSummary:
     summary = BestSelectionSummary(total_groups=total_groups)
     group_sizes: list[int] = []
 
-    for gid in group_ids:
-        photos = repo.get_burst_group_photos(gid)
-        selection = select_best(photos)
+    with repo.batch_transaction():
+        for gid in group_ids:
+            photos = repo.get_burst_group_photos(gid)
+            selection = select_best(photos)
 
-        # Write results to DB
-        for r in selection.rankings:
-            is_best = 1 if r.is_recommended else 0
-            repo.update_best_in_burst(r.image_id, is_best)
+            # Write results to DB
+            for r in selection.rankings:
+                is_best = 1 if r.is_recommended else 0
+                repo.update_best_in_burst(r.image_id, is_best)
 
-        if selection.recommended_id:
-            summary.recommended_count += 1
-            group_sizes.append(len(selection.rankings))
-            logger.info(
-                "  %s: %s — %s  (candidates=%d)",
-                gid,
-                selection.recommended_id,
-                selection.selection_reason,
-                len(selection.rankings),
-            )
-        else:
-            summary.no_candidate_count += 1
-            logger.info("  %s: NO RECOMMENDATION — %s", gid, selection.selection_reason)
+            if selection.recommended_id:
+                summary.recommended_count += 1
+                group_sizes.append(len(selection.rankings))
+                logger.info(
+                    "  %s: %s — %s  (candidates=%d)",
+                    gid,
+                    selection.recommended_id,
+                    selection.selection_reason,
+                    len(selection.rankings),
+                )
+            else:
+                summary.no_candidate_count += 1
+                logger.info("  %s: NO RECOMMENDATION — %s", gid, selection.selection_reason)
 
     if group_sizes:
         summary.avg_group_size = sum(group_sizes) / len(group_sizes)
@@ -115,41 +116,42 @@ def select_best_for_all_duplicates(repo: "PhotoRepository") -> int:
 
     recommended = 0
 
-    for dg in dup_groups:
-        group_id = dg["duplicate_group"]
-        photos = repo.get_photos_by_duplicate_group(group_id)
+    with repo.batch_transaction():
+        for dg in dup_groups:
+            group_id = dg["duplicate_group"]
+            photos = repo.get_photos_by_duplicate_group(group_id)
 
-        # Filter candidates (same criteria as burst best selector)
-        candidates = [
-            p for p in photos
-            if p.is_rejected != 1
-            and p.is_blur != 1
-            and p.is_closed_eye != 1
-            and p.blur_score is not None
-        ]
+            # Filter candidates (same criteria as burst best selector)
+            candidates = [
+                p for p in photos
+                if p.is_rejected != 1
+                and p.is_blur != 1
+                and p.is_closed_eye != 1
+                and p.blur_score is not None
+            ]
 
-        if not candidates:
-            logger.info("  %s: NO RECOMMENDATION — all photos excluded", group_id)
-            continue
+            if not candidates:
+                logger.info("  %s: NO RECOMMENDATION — all photos excluded", group_id)
+                continue
 
-        # Pick best by blur_score (higher = sharper)
-        candidates.sort(key=lambda p: p.blur_score or 0, reverse=True)
-        best = candidates[0]
+            # Pick best by blur_score (higher = sharper)
+            candidates.sort(key=lambda p: p.blur_score or 0, reverse=True)
+            best = candidates[0]
 
-        # Write results to DB
-        for p in photos:
-            is_best = 1 if p.image_id == best.image_id else 0
-            repo.update_best_in_duplicate(p.image_id, is_best)
+            # Write results to DB
+            for p in photos:
+                is_best = 1 if p.image_id == best.image_id else 0
+                repo.update_best_in_duplicate(p.image_id, is_best)
 
-        recommended += 1
-        logger.info(
-            "  %s: %s — blur_score=%.1f (candidates=%d/%d)",
-            group_id,
-            best.image_id,
-            best.blur_score or 0,
-            len(candidates),
-            len(photos),
-        )
+            recommended += 1
+            logger.info(
+                "  %s: %s — blur_score=%.1f (candidates=%d/%d)",
+                group_id,
+                best.image_id,
+                best.blur_score or 0,
+                len(candidates),
+                len(photos),
+            )
 
     logger.info(
         "=== Duplicate Best Selector Complete === groups=%d recommended=%d",

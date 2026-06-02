@@ -149,19 +149,20 @@ def run_burst_grouping(
     # ---- Group ----
     groups = group_by_time_gap(photo_dicts, gap_seconds=gap_seconds)
 
-    # ---- Write results to DB ----
+    # ---- Write results to DB (batch transaction — 1 commit instead of N) ----
     photos_in_bursts = 0
     group_sizes: list[int] = []
 
-    for group in groups:
-        group_sizes.append(group.photo_count)
-        for pos, image_id in enumerate(group.photo_ids):
-            repo.update_burst_group(
-                image_id,
-                burst_group=group.group_id,
-                burst_position=pos,
-            )
-        photos_in_bursts += group.photo_count
+    with repo.batch_transaction():
+        for group in groups:
+            group_sizes.append(group.photo_count)
+            for pos, image_id in enumerate(group.photo_ids):
+                repo.update_burst_group(
+                    image_id,
+                    burst_group=group.group_id,
+                    burst_position=pos,
+                )
+            photos_in_bursts += group.photo_count
 
     photos_not_in_bursts = total - photos_in_bursts - skipped_no_time
 

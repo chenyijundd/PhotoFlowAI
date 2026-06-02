@@ -418,26 +418,27 @@ def _run_duplicate_loop(
     duplicate_groups = 0
     duplicate_count = 0
 
-    for indices in root_to_indices.values():
-        if state["cancelled"]:
-            state["status"] = "cancelled"
-            return
-        if len(indices) <= 1:
-            # Clear duplicate flags for singletons
-            image_id = entries[indices[0]][0]
-            repo.update_duplicate_status(
-                image_id, is_duplicate=0, duplicate_group=None,
-            )
-            continue
-        group_num += 1
-        group_id = f"dup_{group_num:04d}"
-        for i in indices:
-            image_id = entries[i][0]
-            repo.update_duplicate_status(
-                image_id, is_duplicate=1, duplicate_group=group_id,
-            )
-        duplicate_groups += 1
-        duplicate_count += len(indices)
+    with repo.batch_transaction():
+        for indices in root_to_indices.values():
+            if state["cancelled"]:
+                state["status"] = "cancelled"
+                return
+            if len(indices) <= 1:
+                # Clear duplicate flags for singletons
+                image_id = entries[indices[0]][0]
+                repo.update_duplicate_status(
+                    image_id, is_duplicate=0, duplicate_group=None,
+                )
+                continue
+            group_num += 1
+            group_id = f"dup_{group_num:04d}"
+            for i in indices:
+                image_id = entries[i][0]
+                repo.update_duplicate_status(
+                    image_id, is_duplicate=1, duplicate_group=group_id,
+                )
+            duplicate_groups += 1
+            duplicate_count += len(indices)
 
     state["duplicate_groups"] = duplicate_groups
     state["duplicate_count"] = duplicate_count
