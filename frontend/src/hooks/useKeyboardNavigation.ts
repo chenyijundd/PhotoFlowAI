@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useCallback, useMemo, useRef } from "react";
-import type { PhotoInfo, PhotoFilterMode } from "../../types";
+import type { PhotoInfo, PhotoFilterMode, AICategory } from "../../types";
 import { useKeyboardHandler, KEY_PRIORITY } from "./useKeyboardManager";
 
 // ZoomMode type is now in types/index.ts — kept export for backward compat
@@ -32,6 +32,9 @@ interface UseKeyboardNavigationProps {
   scrollToIndex: (index: number) => void;
   active: boolean;
   filterMode: PhotoFilterMode;
+  aiCategory: AICategory;
+  /** Called when user navigates via arrow keys, for smart prefetch. */
+  onNavigate?: (direction: 1 | -1) => void;
 }
 
 interface UseKeyboardNavigationResult {
@@ -89,6 +92,8 @@ export function useKeyboardNavigation({
   scrollToIndex,
   active,
   filterMode,
+  aiCategory,
+  onNavigate,
 }: UseKeyboardNavigationProps): UseKeyboardNavigationResult {
   // Current index of selected photo in the photos array
   const selectedIndex = useMemo(() => {
@@ -109,9 +114,13 @@ export function useKeyboardNavigation({
   onToggleStarRef.current = onToggleStar;
   const onToggleRejectRef = useRef(onToggleReject);
   onToggleRejectRef.current = onToggleReject;
+  const onNavigateRef = useRef(onNavigate);
+  onNavigateRef.current = onNavigate;
 
-  // In rejected filter mode, we should NOT skip rejected photos
-  const skipRejected = filterMode !== "rejected";
+  // Skip rejected photos only in basic filter modes (all / starred / unprocessed).
+  // In rejected mode AND any AI category tab, include rejected photos so the
+  // photographer can navigate through every photo they explicitly filtered for.
+  const skipRejected = filterMode !== "rejected" && aiCategory === null;
   const skipRejectedRef = useRef(skipRejected);
   skipRejectedRef.current = skipRejected;
 
@@ -131,6 +140,7 @@ export function useKeyboardNavigation({
           const nextIdx = findNextNonRejectedIndex(p, idx, -1, skipRejectedRef.current);
           if (nextIdx >= 0) {
             selectPhotoRef.current(p[nextIdx].image_id);
+            onNavigateRef.current?.(-1);
           }
           return true;
         }
@@ -139,6 +149,7 @@ export function useKeyboardNavigation({
           const nextIdx = findNextNonRejectedIndex(p, idx, 1, skipRejectedRef.current);
           if (nextIdx >= 0) {
             selectPhotoRef.current(p[nextIdx].image_id);
+            onNavigateRef.current?.(1);
           }
           return true;
         }

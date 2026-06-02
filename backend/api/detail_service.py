@@ -233,7 +233,10 @@ async def get_fullsize_image(image_id: str):
         return FileResponse(
             readable,
             media_type=media_type,
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Access-Control-Allow-Origin": "*",
+            },
         )
 
     # HEIC, RAW previews, and other formats — convert to JPEG on-the-fly
@@ -257,6 +260,7 @@ async def get_fullsize_image(image_id: str):
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Content-Length": str(len(data)),
+                "Access-Control-Allow-Origin": "*",
             },
         )
     except Exception as exc:

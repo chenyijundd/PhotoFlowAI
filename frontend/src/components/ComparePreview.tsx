@@ -4,13 +4,15 @@
  * Displays a single photo's full-size preview with filename, star,
  * and reject status in the compare mode side panel.
  *
- * Performance (Task 14):
- *   - Memory safety: releases old image object when photo changes
- *   - decoding="async" for off-main-thread decode
+ * Zero-latency image switching:
+ *   - No `key={imageId}` — the <img> stays mounted across changes
+ *   - Spinner only appears after a 200 ms delay so preloaded images
+ *     never show a loading state.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { fullsizeUrl } from "../api/photoApi";
+import { imagePreloader } from "../services/ImagePreloader";
 import type { PhotoInfo } from "../../types";
 
 interface ComparePreviewProps {
@@ -19,39 +21,83 @@ interface ComparePreviewProps {
 }
 
 const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
-  const [loaded, setLoaded] = useState(false);
+  const [imageReady, setImageReady] = useState(false);
   const [error, setError] = useState(false);
+  const [showSpinner, setShowSpinner] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  const spinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevImageIdRef = useRef<string | null>(null);
 
-  const src = fullsizeUrl(photo.image_id);
+  // Check preloader cache first for zero-latency display
+  const preloadedUrl = imagePreloader.getFullsizeUrl(photo.image_id);
+  const src = preloadedUrl || fullsizeUrl(photo.image_id);
 
-  // Reset state when photo changes.
-  // Then check img.complete — for cached images, onLoad fires
-  // synchronously before this effect runs, so we must manually
-  // sync the loaded state.
+  // ---- Image change handling (no key — smooth transition) ----
+
   useEffect(() => {
-    prevImageIdRef.current = photo.image_id;
-    setLoaded(false);
-    setError(false);
-    // Handle cached / already-loaded images
-    const img = imgRef.current;
-    if (img?.complete && img.naturalWidth > 0) {
-      setLoaded(true);
+    // Clear pending spinner timer
+    if (spinnerTimerRef.current) {
+      clearTimeout(spinnerTimerRef.current);
+      spinnerTimerRef.current = null;
     }
+
+    const isNewImage = prevImageIdRef.current !== photo.image_id;
+    prevImageIdRef.current = photo.image_id;
+
+    if (!isNewImage) return;
+
+    setError(false);
+    setShowSpinner(false);
+
+    // Check if browser already has this image decoded
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setImageReady(true);
+      return;
+    }
+
+    // New image loading — keep old image visible, delay spinner
+    setImageReady(false);
+    spinnerTimerRef.current = setTimeout(() => {
+      setShowSpinner(true);
+    }, 200);
   }, [photo.image_id]);
 
-  const handleLoad = useCallback(() => setLoaded(true), []);
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (spinnerTimerRef.current) clearTimeout(spinnerTimerRef.current);
+    };
+  }, []);
+
+  // ---- Event handlers ----
+
+  const handleLoad = useCallback(() => {
+    if (spinnerTimerRef.current) {
+      clearTimeout(spinnerTimerRef.current);
+      spinnerTimerRef.current = null;
+    }
+    setShowSpinner(false);
+    setImageReady(true);
+    setError(false);
+  }, []);
+
   const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     console.error("[ComparePreview] onError for", photo.image_id, "src:", (e.target as HTMLImageElement).src);
-    setLoaded(true);
+    if (spinnerTimerRef.current) {
+      clearTimeout(spinnerTimerRef.current);
+      spinnerTimerRef.current = null;
+    }
+    setShowSpinner(false);
+    setImageReady(true);
     setError(true);
   }, [photo.image_id]);
 
   return (
     <div className={`compare-panel${isActive ? " compare-panel--active" : ""}`}>
       <div className="compare-image-area">
-        {!loaded && !error && (
+        {/* Spinner overlay — only shown after 200 ms delay */}
+        {showSpinner && !imageReady && !error && (
           <div className="fullsize-loading">
             <div className="spinner" />
           </div>
@@ -61,15 +107,15 @@ const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
             <span>原图加载失败</span>
           </div>
         )}
+        {/* No key={imageId}: smooth transition — browser keeps displaying
+            the old image while the new one decodes in the background. */}
         <img
-          key={photo.image_id}
           ref={imgRef}
           src={src}
           alt={photo.file_name}
           loading="eager"
           onLoad={handleLoad}
           onError={handleError}
-          style={{ display: loaded && !error ? "block" : "none" }}
           draggable={false}
         />
       </div>

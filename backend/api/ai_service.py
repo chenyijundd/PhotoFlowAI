@@ -7,9 +7,16 @@ All detection tasks run in background threads. The start endpoint returns a
 task_id immediately, and the frontend polls GET /api/ai/{type}-progress/{id}.
 """
 
+import asyncio
+import json
 import logging
+import queue
+import threading
+import time
+import uuid
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.ai.blur_detector_v2.service import start_blur_detection_v2, get_blur_progress_v2, cancel_blur_detection_v2
@@ -17,9 +24,6 @@ from backend.ai.burst_grouper.service import start_burst_grouping, get_burst_pro
 from backend.ai.duplicate_detector.service import start_duplicate_detection, get_duplicate_progress, cancel_duplicate_detection
 from backend.ai.best_selector.service import select_best_for_all_bursts, select_best_for_all_duplicates
 from backend.ai.eye_detection.service import start_eye_detection, get_eye_progress, cancel_eye_detection
-
-import threading
-import uuid
 from database.repository import PhotoRepository
 
 logger = logging.getLogger(__name__)
@@ -269,9 +273,25 @@ async def duplicate_detect_cancel(task_id: str):
 
 _analyze_tasks: dict[str, dict] = {}
 _analyze_lock = threading.Lock()
+_analyze_event_queues: dict[str, queue.Queue] = {}
 
 
-def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mode: str | None = None):
+def _push_analyze_event(task_id: str, event_type: str, data: dict):
+    """Push an SSE event into the task's event queue (thread-safe)."""
+    q = _analyze_event_queues.get(task_id)
+    if q is not None:
+        try:
+            q.put({"event": event_type, "data": data})
+        except Exception:
+            pass  # Queue might be full or closed — silently ignore
+
+
+def _run_analyze_all(
+    task_id: str,
+    photo_ids: list[str] | None = None,
+    filter_mode: str | None = None,
+    event_queue: queue.Queue | None = None,
+):
     """Run all 5 AI steps with cascading skip logic.
 
     Cascade order (severity-based triage):
@@ -289,7 +309,12 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
     If filter_mode is "unprocessed", only unprocessed photos are analysed.
     Default (no filter_mode): only unanalyzed photos (incremental analysis).
     Pass filter_mode="all" to force analysis of all photos.
+
+    If *event_queue* is provided, SSE events are pushed at step boundaries
+    and progress checkpoints for real-time streaming to the frontend.
     """
+    _push = lambda evt, data: _push_analyze_event(task_id, evt, data) if event_queue else None
+
     state = _analyze_tasks.get(task_id)
     if not state:
         return
@@ -317,8 +342,6 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
         ("best",  "Step 5/5: 最佳推荐", None,                       None,                    {}),
     ]
 
-    import time
-
     # Cumulative skip sets — each step adds its "hit" photos
     closed_eye_ids: set[str] = set()
     blurry_ids: set[str] = set()
@@ -342,20 +365,35 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
     for step_key, phase_label, start_fn, progress_fn, extra_kwargs in steps:
         if state.get("cancelled"):
             state["status"] = "cancelled"
+            _push("task_cancelled", {})
             return
 
         state["phase"] = phase_label
         state["progress"] = 0
         state["total"] = total_photos
 
+        _push("step_start", {"step": step_key, "phase": phase_label, "total": total_photos})
+
         if step_key == "best":
             # Synchronous: runs in-thread, no polling needed
             # Run both burst best and duplicate best selection
+            _push("step_start", {"step": "best", "phase": phase_label, "total": total_photos})
             try:
                 burst_summary = select_best_for_all_bursts(repo)
                 dup_count = select_best_for_all_duplicates(repo)
                 state["progress"] = total_photos
                 state["best_count"] = burst_summary.recommended_count + dup_count
+                _push("progress", {
+                    "step": "best",
+                    "phase": phase_label,
+                    "progress": total_photos,
+                    "total": total_photos,
+                    "current_file": "",
+                })
+                _push("step_complete", {
+                    "step": "best",
+                    "best_count": state["best_count"],
+                })
             except Exception as exc:
                 logger.error("Best selection failed: %s", exc)
             continue
@@ -403,6 +441,7 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
         while True:
             if state.get("cancelled"):
                 state["status"] = "cancelled"
+                _push("task_cancelled", {})
                 return
             p = progress_fn(task_id_step)
             if not p:
@@ -411,17 +450,40 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
             state["progress"] = p.get("progress", 0)
             state["total"] = max(p.get("total", 0), 1)
             state["current_file"] = p.get("current_file", "")
+            # Push progress event (~every 0.5s while running)
+            _push("progress", {
+                "step": step_key,
+                "phase": phase_label,
+                "progress": state["progress"],
+                "total": state["total"],
+                "current_file": state["current_file"],
+            })
             if p.get("status") != "running":
                 # Push to 100 % so the frontend sees step completion
                 state["progress"] = state["total"]
+                _push("progress", {
+                    "step": step_key,
+                    "phase": phase_label,
+                    "progress": state["total"],
+                    "total": state["total"],
+                    "current_file": "",
+                })
                 break
             time.sleep(0.5)
 
         # ---- After step completes: collect "hit" IDs for cascade ----
         if step_key == "eye":
             closed_eye_ids = {p.image_id for p in repo.get_all_photos() if p.is_closed_eye == 1}
+            _push("step_complete", {
+                "step": "eye",
+                "closed_eye_count": len(closed_eye_ids),
+            })
         elif step_key == "blur":
             blurry_ids = {p.image_id for p in repo.get_all_photos() if p.is_blur == 1}
+            _push("step_complete", {
+                "step": "blur",
+                "blur_count": len(blurry_ids),
+            })
         elif step_key == "burst":
             # Clear burst_group for photos that are closed-eye or blurry —
             # they should not appear in burst groups per cascade design.
@@ -441,6 +503,24 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
                 and p.image_id not in closed_eye_ids
                 and p.image_id not in blurry_ids
             }
+            # Count burst groups
+            burst_groups = repo.get_burst_groups()
+            _push("step_complete", {
+                "step": "burst",
+                "burst_group_count": len(burst_groups),
+                "burst_photo_count": len(burst_ids),
+            })
+        elif step_key == "dup":
+            # Count duplicate results from DB
+            dup_groups = repo.get_duplicate_groups()
+            dup_photos = {
+                p.image_id for p in repo.get_all_photos() if p.is_duplicate == 1
+            }
+            _push("step_complete", {
+                "step": "dup",
+                "duplicate_group_count": len(dup_groups),
+                "duplicate_photo_count": len(dup_photos),
+            })
 
     # ---- Mark all analysed photos so the next run only picks up new ones ----
     if total_photos > 0 and not state.get("cancelled"):
@@ -455,6 +535,23 @@ def _run_analyze_all(task_id: str, photo_ids: list[str] | None = None, filter_mo
     state["status"] = "completed"
     state["phase"] = "分析完成"
     state["progress"] = total_photos
+
+    # Push final task_complete event with summary
+    try:
+        summary = repo.get_ai_summary()
+        _push("task_complete", {
+            "total_analyzed": summary.total_analyzed,
+            "closed_eye_count": summary.closed_eye_count,
+            "blur_count": summary.blur_count,
+            "burst_group_count": summary.burst_group_count,
+            "burst_photo_count": summary.burst_photo_count,
+            "duplicate_group_count": summary.duplicate_group_count,
+            "duplicate_photo_count": summary.duplicate_photo_count,
+            "best_count": summary.best_count,
+            "clean_count": summary.clean_count,
+        })
+    except Exception:
+        _push("task_complete", {"total_analyzed": total_photos})
 
 
 @router.post("/analyze-all", response_model=TaskStartResponse)
@@ -480,10 +577,11 @@ async def analyze_all_start(body: AnalyzeAllRequest = AnalyzeAllRequest()):
         }
         with _analyze_lock:
             _analyze_tasks[task_id] = state
+            _analyze_event_queues[task_id] = queue.Queue()
 
         t = threading.Thread(
             target=_run_analyze_all,
-            args=(task_id, body.photo_ids, body.filter_mode),
+            args=(task_id, body.photo_ids, body.filter_mode, _analyze_event_queues[task_id]),
             daemon=True,
         )
         t.start()
@@ -495,7 +593,7 @@ async def analyze_all_start(body: AnalyzeAllRequest = AnalyzeAllRequest()):
 
 @router.get("/analyze-progress/{task_id}", response_model=ProgressResponse)
 async def analyze_all_progress(task_id: str):
-    """Poll analyze-all progress."""
+    """Poll analyze-all progress (legacy — prefer SSE /analyze-stream for new clients)."""
     state = _analyze_tasks.get(task_id)
     if not state:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -508,6 +606,71 @@ async def analyze_all_progress(task_id: str):
         current_file=state.get("current_file", ""),
         failed=state.get("failed", 0),
     )
+
+
+@router.get("/analyze-stream/{task_id}")
+async def analyze_stream(task_id: str):
+    """SSE endpoint — stream analyze-all progress events in real time.
+
+    Events emitted:
+      - step_start    {step, phase, total}
+      - progress      {step, phase, progress, total, current_file}
+      - step_complete {step, ...counts}
+      - task_complete {summary}
+      - task_cancelled {}
+    """
+    event_queue = _analyze_event_queues.get(task_id)
+
+    # If no queue yet but task exists, create one (race: task thread hasn't started yet)
+    if event_queue is None:
+        with _analyze_lock:
+            if _analyze_tasks.get(task_id) and task_id not in _analyze_event_queues:
+                _analyze_event_queues[task_id] = queue.Queue()
+        event_queue = _analyze_event_queues.get(task_id)
+
+    if event_queue is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    async def event_generator():
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                try:
+                    event = await loop.run_in_executor(None, lambda: event_queue.get(timeout=1.0))
+                    yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                    if event["event"] in ("task_complete", "task_cancelled", "task_error"):
+                        break
+                except queue.Empty:
+                    # Heartbeat to keep the connection alive
+                    yield ": heartbeat\n\n"
+        except asyncio.CancelledError:
+            pass  # Client disconnected — clean exit
+        finally:
+            _analyze_event_queues.pop(task_id, None)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/analyze-cancel/{task_id}")
+async def analyze_cancel(task_id: str):
+    """Cancel a running analyze-all task."""
+    state = _analyze_tasks.get(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if state.get("status") != "running":
+        raise HTTPException(status_code=400, detail="Task is not running")
+    state["cancelled"] = True
+    # Push cancellation event through SSE if connected
+    _push_analyze_event(task_id, "task_cancelled", {})
+    return {"status": "cancelling"}
 
 
 # ---- AI Analysis Summary ----

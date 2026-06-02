@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, BurstCountResponse, BurstGroupsResponse, BestCountResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, EyeClosedCountResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, BurstCountResponse, BurstGroupsResponse, BestCountResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, EyeClosedCountResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse, AnalyzeStreamCallbacks, AnalyzeStepStartData, AnalyzeProgressData, AnalyzeStepCompleteData, AnalyzeTaskCompleteData, CullStreamCallbacks } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -660,6 +660,96 @@ export async function batchUpdate(body: BatchUpdateRequest): Promise<BatchUpdate
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+// ---- SSE (Server-Sent Events) stream connections ----
+// These bypass Electron IPC and connect directly to the backend
+// because EventSource requires a persistent streaming HTTP connection.
+
+/**
+ * Connect to the analyze-all SSE stream.
+ * Returns a cleanup function that closes the EventSource.
+ */
+export function connectAnalyzeStream(
+  taskId: string,
+  callbacks: AnalyzeStreamCallbacks,
+): () => void {
+  const es = new EventSource(`${BACKEND_URL}/api/ai/analyze-stream/${taskId}`);
+
+  es.addEventListener("step_start", (e: MessageEvent) => {
+    callbacks.onStepStart(JSON.parse(e.data) as AnalyzeStepStartData);
+  });
+  es.addEventListener("progress", (e: MessageEvent) => {
+    callbacks.onProgress(JSON.parse(e.data) as AnalyzeProgressData);
+  });
+  es.addEventListener("step_complete", (e: MessageEvent) => {
+    callbacks.onStepComplete(JSON.parse(e.data) as AnalyzeStepCompleteData);
+  });
+  es.addEventListener("task_complete", (e: MessageEvent) => {
+    callbacks.onTaskComplete(JSON.parse(e.data) as AnalyzeTaskCompleteData);
+    es.close();
+  });
+  es.addEventListener("task_cancelled", () => {
+    callbacks.onTaskCancelled();
+    es.close();
+  });
+  es.addEventListener("task_error", (e: MessageEvent) => {
+    callbacks.onTaskError(JSON.parse(e.data).error || "Unknown error");
+    es.close();
+  });
+
+  return () => es.close();
+}
+
+/**
+ * Connect to the cull SSE stream.
+ * Returns a cleanup function that closes the EventSource.
+ */
+export function connectCullStream(
+  taskId: string,
+  callbacks: CullStreamCallbacks,
+): () => void {
+  const es = new EventSource(`${BACKEND_URL}/api/photos/cull-stream/${taskId}`);
+
+  es.addEventListener("step_start", (e: MessageEvent) => {
+    callbacks.onStepStart(JSON.parse(e.data));
+  });
+  es.addEventListener("progress", (e: MessageEvent) => {
+    callbacks.onProgress(JSON.parse(e.data));
+  });
+  es.addEventListener("step_complete", (e: MessageEvent) => {
+    callbacks.onStepComplete(JSON.parse(e.data));
+  });
+  es.addEventListener("task_complete", (e: MessageEvent) => {
+    callbacks.onTaskComplete(JSON.parse(e.data) as OneClickCullResponse);
+    es.close();
+  });
+  es.addEventListener("task_cancelled", () => {
+    callbacks.onTaskCancelled();
+    es.close();
+  });
+  es.addEventListener("task_error", (e: MessageEvent) => {
+    callbacks.onTaskError(JSON.parse(e.data).error || "Unknown error");
+    es.close();
+  });
+
+  return () => es.close();
+}
+
+/** Cancel a running analyze-all task. */
+export async function cancelAnalyze(taskId: string): Promise<{ status: string }> {
+  const url = `${BACKEND_URL}/api/ai/analyze-cancel/${taskId}`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Cancel a running cull task. */
+export async function cancelCull(taskId: string): Promise<{ status: string }> {
+  const url = `${BACKEND_URL}/api/photos/cull-cancel/${taskId}`;
+  const res = await fetch(url, { method: "POST" });
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }

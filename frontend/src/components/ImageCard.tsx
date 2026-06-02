@@ -19,6 +19,7 @@ import type { PhotoInfo } from "../../types";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useBatchSelection } from "../context/BatchSelectionContext";
 import { useIntersectionObserver } from "../hooks/useIntersectionObserver";
+import { imagePreloader } from "../services/ImagePreloader";
 
 interface ImageCardProps {
   photo: PhotoInfo;
@@ -50,7 +51,9 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
       setAnchor,
       selectionCount,
     } = useBatchSelection();
-    const imgSrc = thumbnailSrc(photo);
+    // Check preloader cache first (IndexedDB → memory), fall back to network URL
+    const cachedThumb = imagePreloader.getThumbnailUrlSync(photo.image_id);
+    const imgSrc = cachedThumb || thumbnailSrc(photo);
     const isDetailSelected = selectedId === photo.image_id;
 
     // True lazy loading via IntersectionObserver

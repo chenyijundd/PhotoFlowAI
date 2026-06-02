@@ -5,14 +5,17 @@ REST API endpoints for retrieving photo data from the SQLite database.
 Used by the Electron frontend to display the photo grid.
 """
 
-import os
+import asyncio
+import json
 import logging
+import os
+import queue
 import threading
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from database.repository import PhotoRepository
@@ -491,7 +494,11 @@ async def get_thumbnail(filename: str):
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
 
-    return FileResponse(path, media_type="image/jpeg")
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +534,17 @@ class CullProgressResponse(BaseModel):
 # In-memory task store for cull progress
 _cull_tasks: dict[str, dict] = {}
 _cull_lock = threading.Lock()
+_cull_event_queues: dict[str, queue.Queue] = {}
+
+
+def _push_cull_event(task_id: str, event_type: str, data: dict):
+    """Push an SSE event into the cull task's event queue (thread-safe)."""
+    q = _cull_event_queues.get(task_id)
+    if q is not None:
+        try:
+            q.put({"event": event_type, "data": data})
+        except Exception:
+            pass
 
 
 class TaskStartResponse(BaseModel):
@@ -534,7 +552,7 @@ class TaskStartResponse(BaseModel):
     total: int
 
 
-def _run_cull_all(task_id: str):
+def _run_cull_all(task_id: str, event_queue: queue.Queue | None = None):
     """Run the full 5-step cull in background, updating progress as we go.
 
     Cascade order (matches AI analysis pipeline):
@@ -551,7 +569,12 @@ def _run_cull_all(task_id: str):
     **Manual override protection**: Photos with manually_operated_at set
     (photographer hand-touched star or reject) are skipped in ALL steps.
     AI never overrides a human decision.
+
+    If *event_queue* is provided, SSE events are pushed at step boundaries
+    and progress checkpoints for real-time streaming to the frontend.
     """
+    _push = lambda evt, data: _push_cull_event(task_id, evt, data) if event_queue else None
+
     state = _cull_tasks.get(task_id)
     if not state:
         return
@@ -583,16 +606,19 @@ def _run_cull_all(task_id: str):
 
     # ---- Step 1: Reject closed-eye photos (L1: fatal) ----
     state["phase"] = "步骤 1/5: 闭眼照片"
+    _push("step_start", {"step": "eye_reject", "phase": "步骤 1/5: 闭眼照片", "total": total_photos})
     scanned = 0
     with repo.batch_transaction():
         for p in all_photos:
             if state.get("cancelled"):
                 state["status"] = "cancelled"
+                _push("task_cancelled", {})
                 return
             scanned += 1
             if scanned % 50 == 0:
                 state["progress"] = scanned
                 state["total"] = total_photos
+                _push("progress", {"step": "eye_reject", "phase": "步骤 1/5: 闭眼照片", "progress": scanned, "total": total_photos})
             if p.image_id in starred_ids or p.image_id in manually_operated_ids:
                 continue
             if p.is_closed_eye == 1 and p.is_rejected != 1:
@@ -600,9 +626,12 @@ def _run_cull_all(task_id: str):
                 eye_closed_rejected += 1
                 processed.add(p.image_id)
     state["progress"] = total_photos
+    _push("progress", {"step": "eye_reject", "phase": "步骤 1/5: 闭眼照片", "progress": total_photos, "total": total_photos})
+    _push("step_complete", {"step": "eye_reject", "eye_closed_rejected": eye_closed_rejected})
 
     # ---- Step 2: Count blur photos (L2: flagged, NOT auto-rejected) ----
     state["phase"] = "步骤 2/5: 模糊标记"
+    _push("step_start", {"step": "blur_flag", "phase": "步骤 2/5: 模糊标记", "total": total_photos})
     blur_flagged = sum(
         1 for p in all_photos
         if p.is_blur == 1 and p.is_rejected != 1
@@ -610,6 +639,8 @@ def _run_cull_all(task_id: str):
         and p.image_id not in manually_operated_ids
     )
     state["progress"] = total_photos
+    _push("progress", {"step": "blur_flag", "phase": "步骤 2/5: 模糊标记", "progress": total_photos, "total": total_photos})
+    _push("step_complete", {"step": "blur_flag", "blur_flagged": blur_flagged})
 
     # ---- Step 3: Burst groups — accept best, reject rest ----
     # Photos already rejected (closed-eye) are skipped.
@@ -622,11 +653,13 @@ def _run_cull_all(task_id: str):
     state["phase"] = "步骤 3/5: 连拍组"
     state["progress"] = step3_base
     state["total"] = step3_total
+    _push("step_start", {"step": "burst_cull", "phase": "步骤 3/5: 连拍组", "total": step3_total})
     burst_processed_cnt = 0
     with repo.batch_transaction():
         for gid in group_ids:
             if state.get("cancelled"):
                 state["status"] = "cancelled"
+                _push("task_cancelled", {})
                 return
             group_photos = repo.get_burst_group_photos(gid)
             for p in group_photos:
@@ -634,6 +667,7 @@ def _run_cull_all(task_id: str):
                 if burst_processed_cnt % 20 == 0:
                     state["progress"] = step3_base + burst_processed_cnt
                     state["total"] = step3_total
+                    _push("progress", {"step": "burst_cull", "phase": "步骤 3/5: 连拍组", "progress": state["progress"], "total": state["total"]})
                 if p.image_id in starred_ids or p.image_id in manually_operated_ids:
                     continue
                 # Skip already rejected photos (closed-eye)
@@ -654,6 +688,8 @@ def _run_cull_all(task_id: str):
                         processed.add(p.image_id)
     state["progress"] = step3_total if total_burst else step3_base
     state["total"] = step3_total if total_burst else step3_base
+    _push("progress", {"step": "burst_cull", "phase": "步骤 3/5: 连拍组", "progress": state["progress"], "total": state["total"]})
+    _push("step_complete", {"step": "burst_cull", "burst_accepted": burst_accepted, "burst_rejected": burst_rejected})
 
     # ---- Step 4: Duplicate groups — keep best, reject rest ----
     # Skip photos already processed (closed-eye rejected, burst handled).
@@ -665,10 +701,12 @@ def _run_cull_all(task_id: str):
     step4_base = state["progress"]
     step4_total = step4_base + dup_total
     state["total"] = step4_total
+    _push("step_start", {"step": "dup_cull", "phase": "步骤 4/5: 重复照片", "total": step4_total})
     with repo.batch_transaction():
         for dg in dup_groups:
             if state.get("cancelled"):
                 state["status"] = "cancelled"
+                _push("task_cancelled", {})
                 return
             group_photos = repo.get_photos_by_duplicate_group(dg["duplicate_group"])
             # Exclude already processed (closed-eye rejected, burst handled),
@@ -695,6 +733,7 @@ def _run_cull_all(task_id: str):
                 if dup_scanned % 20 == 0:
                     state["progress"] = step4_base + dup_scanned
                     state["total"] = step4_total
+                    _push("progress", {"step": "dup_cull", "phase": "步骤 4/5: 重复照片", "progress": state["progress"], "total": state["total"]})
                 if p.image_id == best.image_id:
                     if p.star_rating != 1:
                         repo.update_star_rating(p.image_id, 1)
@@ -706,6 +745,8 @@ def _run_cull_all(task_id: str):
                     processed.add(p.image_id)
     state["progress"] = step4_total if dup_total else step4_base
     state["total"] = step4_total if dup_total else step4_base
+    _push("progress", {"step": "dup_cull", "phase": "步骤 4/5: 重复照片", "progress": state["progress"], "total": state["total"]})
+    _push("step_complete", {"step": "dup_cull", "duplicate_rejected": duplicate_rejected, "duplicate_best_kept": duplicate_best_kept})
 
     # ---- Step 5: Clean remaining photos — auto-star ----
     # Only stars photos that have NO detection issues AND haven't been
@@ -718,15 +759,18 @@ def _run_cull_all(task_id: str):
     state["phase"] = "步骤 5/5: 干净照片"
     state["progress"] = state["progress"]
     state["total"] = total_photos * 3  # rough scale for the final scan
+    _push("step_start", {"step": "clean_star", "phase": "步骤 5/5: 干净照片", "total": total_photos})
     scanned = 0
     with repo.batch_transaction():
         for p in all_photos:
             if state.get("cancelled"):
                 state["status"] = "cancelled"
+                _push("task_cancelled", {})
                 return
             scanned += 1
             if scanned % 50 == 0:
                 state["progress"] = state["progress"] + scanned
+                _push("progress", {"step": "clean_star", "phase": "步骤 5/5: 干净照片", "progress": scanned, "total": total_photos})
             if p.image_id in starred_ids or p.image_id in processed or p.image_id in manually_operated_ids:
                 continue
             # Already rejected (by previous cull or this run) — keep decision
@@ -744,6 +788,8 @@ def _run_cull_all(task_id: str):
             repo.update_star_rating(p.image_id, 1)
             clean_accepted += 1
             processed.add(p.image_id)
+
+    _push("step_complete", {"step": "clean_star", "clean_accepted": clean_accepted})
 
     # ---- Final tally ----
     total_accepted = burst_accepted + duplicate_best_kept + clean_accepted
@@ -781,12 +827,27 @@ def _run_cull_all(task_id: str):
     state["progress"] = state["total"]
     state["result"] = result
 
+    _push("task_complete", {
+        "eye_closed_rejected": eye_closed_rejected,
+        "blur_flagged": blur_flagged,
+        "duplicate_rejected": duplicate_rejected,
+        "duplicate_best_kept": duplicate_best_kept,
+        "burst_accepted": burst_accepted,
+        "burst_rejected": burst_rejected,
+        "clean_accepted": clean_accepted,
+        "total_accepted": total_accepted,
+        "total_rejected": total_rejected,
+        "untouched": untouched,
+        "total_photos": total_photos,
+    })
+
 
 @router.post("/photos/cull-all")
 async def one_click_cull_start():
     """Start a one-click cull task in the background.
 
-    Returns a task_id for polling via GET /api/photos/cull-progress/{task_id}.
+    Returns a task_id for polling via GET /api/photos/cull-progress/{task_id}
+    or streaming via GET /api/photos/cull-stream/{task_id} (SSE).
     """
     task_id = uuid.uuid4().hex[:8]
     state = {
@@ -799,10 +860,11 @@ async def one_click_cull_start():
     }
     with _cull_lock:
         _cull_tasks[task_id] = state
+        _cull_event_queues[task_id] = queue.Queue()
 
     t = threading.Thread(
         target=_run_cull_all,
-        args=(task_id,),
+        args=(task_id, _cull_event_queues[task_id]),
         daemon=True,
     )
     t.start()
@@ -811,7 +873,7 @@ async def one_click_cull_start():
 
 @router.get("/photos/cull-progress/{task_id}", response_model=CullProgressResponse)
 async def one_click_cull_progress(task_id: str):
-    """Poll the progress of a one-click cull task."""
+    """Poll the progress of a one-click cull task (legacy — prefer SSE for new clients)."""
     state = _cull_tasks.get(task_id)
     if not state:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -824,3 +886,65 @@ async def one_click_cull_progress(task_id: str):
         result=state.get("result"),
         error=state.get("error"),
     )
+
+
+@router.get("/photos/cull-stream/{task_id}")
+async def cull_stream(task_id: str):
+    """SSE endpoint — stream cull progress events in real time.
+
+    Events emitted:
+      - step_start    {step, phase, total}
+      - progress      {step, phase, progress, total}
+      - step_complete {step, ...counts}
+      - task_complete {result}
+      - task_cancelled {}
+    """
+    event_queue = _cull_event_queues.get(task_id)
+
+    if event_queue is None:
+        with _cull_lock:
+            if _cull_tasks.get(task_id) and task_id not in _cull_event_queues:
+                _cull_event_queues[task_id] = queue.Queue()
+        event_queue = _cull_event_queues.get(task_id)
+
+    if event_queue is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    async def event_generator():
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                try:
+                    event = await loop.run_in_executor(None, lambda: event_queue.get(timeout=1.0))
+                    yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                    if event["event"] in ("task_complete", "task_cancelled", "task_error"):
+                        break
+                except queue.Empty:
+                    yield ": heartbeat\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _cull_event_queues.pop(task_id, None)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/photos/cull-cancel/{task_id}")
+async def cull_cancel(task_id: str):
+    """Cancel a running cull task."""
+    state = _cull_tasks.get(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if state.get("status") != "running":
+        raise HTTPException(status_code=400, detail="Task is not running")
+    state["cancelled"] = True
+    _push_cull_event(task_id, "task_cancelled", {})
+    return {"status": "cancelling"}

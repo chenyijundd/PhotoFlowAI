@@ -276,6 +276,77 @@ export interface CullProgressResponse {
   error: string | null;
 }
 
+// ---- SSE stream event types ----
+
+/** Single SSE event from /api/ai/analyze-stream/{task_id}. */
+export interface AnalyzeStreamEvent {
+  event: "step_start" | "progress" | "step_complete" | "task_complete" | "task_cancelled" | "task_error";
+  data: AnalyzeStepStartData | AnalyzeProgressData | AnalyzeStepCompleteData | AnalyzeTaskCompleteData | Record<string, never>;
+}
+
+export interface AnalyzeStepStartData {
+  step: string;
+  phase: string;
+  total: number;
+}
+
+export interface AnalyzeProgressData {
+  step: string;
+  phase: string;
+  progress: number;
+  total: number;
+  current_file: string;
+}
+
+export interface AnalyzeStepCompleteData {
+  step: string;
+  closed_eye_count?: number;
+  blur_count?: number;
+  burst_group_count?: number;
+  burst_photo_count?: number;
+  duplicate_group_count?: number;
+  duplicate_photo_count?: number;
+  best_count?: number;
+}
+
+export interface AnalyzeTaskCompleteData {
+  total_analyzed: number;
+  closed_eye_count: number;
+  blur_count: number;
+  burst_group_count: number;
+  burst_photo_count: number;
+  duplicate_group_count: number;
+  duplicate_photo_count: number;
+  best_count: number;
+  clean_count: number;
+}
+
+/** Callbacks for SSE analyze-all stream. */
+export interface AnalyzeStreamCallbacks {
+  onStepStart: (data: AnalyzeStepStartData) => void;
+  onProgress: (data: AnalyzeProgressData) => void;
+  onStepComplete: (data: AnalyzeStepCompleteData) => void;
+  onTaskComplete: (data: AnalyzeTaskCompleteData) => void;
+  onTaskCancelled: () => void;
+  onTaskError: (error: string) => void;
+}
+
+/** SSE event data for cull step completion. */
+export interface CullStepCompleteData {
+  step: string;
+  [key: string]: number | string;
+}
+
+/** Callbacks for SSE cull stream. */
+export interface CullStreamCallbacks {
+  onStepStart: (data: { step: string; phase: string; total: number }) => void;
+  onProgress: (data: { step: string; phase: string; progress: number; total: number }) => void;
+  onStepComplete: (data: CullStepCompleteData) => void;
+  onTaskComplete: (data: OneClickCullResponse) => void;
+  onTaskCancelled: () => void;
+  onTaskError: (error: string) => void;
+}
+
 /** API exposed to the renderer via preload contextBridge. */
 export interface ElectronAPI {
   getPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;

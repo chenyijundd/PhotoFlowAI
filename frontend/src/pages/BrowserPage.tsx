@@ -11,7 +11,9 @@ import { useCompareMode } from "../context/CompareModeContext";
 import { useLightboxMode } from "../context/LightboxModeContext";
 import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
-import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchBlurCount, fetchDuplicateCount, fetchBurstCount, fetchBestCount, fetchClosedEyeCount, fetchAISummary, batchUpdate } from "../api/photoApi";
+import { useImagePreloader } from "../hooks/useImagePreloader";
+import { imagePreloader } from "../services/ImagePreloader";
+import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchBlurCount, fetchDuplicateCount, fetchBurstCount, fetchBestCount, fetchClosedEyeCount, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
@@ -69,7 +71,8 @@ const BrowserPage: React.FC = () => {
   const [detectProgress, setDetectProgress] = useState(0);
   const [detectTotal, setDetectTotal] = useState(0);
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
-  const detectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const detectStreamRef = useRef<(() => void) | null>(null);  // SSE cleanup
+  const analyzeTaskIdRef = useRef<string | null>(null);  // for cancel
   const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Detail panel refresh trigger for star rating changes
@@ -122,9 +125,10 @@ const BrowserPage: React.FC = () => {
     });
   }, [setOnStatus]);
 
-  // Cleanup done timer on unmount
+  // Cleanup SSE stream + done timer on unmount
   useEffect(() => {
     return () => {
+      if (detectStreamRef.current) detectStreamRef.current();
       if (doneTimerRef.current) clearTimeout(doneTimerRef.current);
     };
   }, []);
@@ -134,6 +138,33 @@ const BrowserPage: React.FC = () => {
     if (!selectedId) return null;
     return photos.find((p) => p.image_id === selectedId) || null;
   }, [photos, selectedId]);
+
+  // Current index of selected photo (for preloader range calculation)
+  const selectedIndex = useMemo(() => {
+    if (!selectedId) return -1;
+    return photos.findIndex((p) => p.image_id === selectedId);
+  }, [photos, selectedId]);
+
+  // Approximate grid column count for preloader range calculation.
+  // Uses the same formula as ImageGrid: colWidth=212, sidebar≈460px.
+  const [gridColumnCount, setGridColumnCount] = useState(6);
+  useEffect(() => {
+    const update = () => {
+      const gridWidth = window.innerWidth - 460;
+      setGridColumnCount(Math.max(1, Math.floor(gridWidth / 212)));
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // Smart image preloader: zero-latency photo review
+  const { onNavigate } = useImagePreloader({
+    photos,
+    selectedIndex,
+    columnCount: gridColumnCount,
+    enabled: !isCompareMode && !isLightboxMode,
+  });
 
   // Fetch all filter counts in a single batch request
   const loadCounts = useCallback(async () => {
@@ -493,6 +524,8 @@ const BrowserPage: React.FC = () => {
     scrollToIndex,
     active: !isCompareMode,
     filterMode,
+    aiCategory,
+    onNavigate,
   });
 
   // 'C' key — enter compare mode (via centralized keyboard manager)
@@ -683,6 +716,8 @@ const BrowserPage: React.FC = () => {
       }
       refresh();
       loadCounts();
+      // Clear preloader cache — old cached images may be from a different project
+      imagePreloader.clear();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "导入失败";
       setImportMsg(msg);
@@ -693,6 +728,9 @@ const BrowserPage: React.FC = () => {
 
   // Apply cull results (no confirm — caller handles confirmation)
   const runCull = useCallback(async () => {
+    // Close any existing SSE stream
+    if (detectStreamRef.current) { detectStreamRef.current(); detectStreamRef.current = null; }
+
     setSmartState("culling");
     setDetectMsg(null);
     setDetectPhase("准备中...");
@@ -702,44 +740,59 @@ const BrowserPage: React.FC = () => {
       const started = await cullAll();
       if (!started.task_id) { setSmartState("cull_ready"); return; }
 
-      detectPollRef.current = setInterval(async () => {
-        try {
-          const p: CullProgressResponse = await cullProgress(started.task_id);
-          setDetectPhase(p.phase);
-          setDetectProgress(p.progress);
-          setDetectTotal(p.total);
-          if (p.status !== "running") {
-            if (detectPollRef.current) clearInterval(detectPollRef.current);
-            detectPollRef.current = null;
-            if (p.status === "completed" && p.result) {
-              const parts: string[] = [];
-              if (p.result.total_accepted > 0) parts.push(`${p.result.total_accepted} 张加星`);
-              if (p.result.total_rejected > 0) parts.push(`${p.result.total_rejected} 张废片`);
-              if (p.result.blur_flagged > 0) parts.push(`${p.result.blur_flagged} 张模糊(仅标记)`);
-              setDetectMsg(
-                `一键选片完成：${parts.join("，")}` +
-                (p.result.untouched > 0 ? `，${p.result.untouched} 张未处理（需手动判断）` : "")
-              );
-              setSmartState("done");
-              refresh();
-              loadCounts();
-              fetchAICounts();
-              // 2s 后自动回到 idle
-              doneTimerRef.current = setTimeout(() => {
-                setSmartState("idle");
-                setDetectMsg(null);
-                setAiCategory(null);
-              }, 2000);
-            } else if (p.status === "cancelled") {
-              setDetectMsg("选片已取消");
-              setSmartState("cull_ready");
-            } else if (p.status === "error") {
-              setDetectMsg(p.error || "选片失败");
-              setSmartState("cull_ready");
-            }
-          }
-        } catch { /* poll retry */ }
-      }, 400);
+      analyzeTaskIdRef.current = started.task_id;
+
+      detectStreamRef.current = connectCullStream(started.task_id, {
+        onStepStart: (data) => {
+          setDetectPhase(data.phase);
+          setDetectTotal(data.total);
+          setDetectProgress(0);
+        },
+        onProgress: (data) => {
+          setDetectPhase(data.phase);
+          setDetectProgress(data.progress);
+          setDetectTotal(data.total);
+        },
+        onStepComplete: (_data) => {
+          // Refresh counts and grid incrementally
+          fetchAICounts();
+          refresh();
+          loadCounts();
+        },
+        onTaskComplete: (data) => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          const parts: string[] = [];
+          if (data.total_accepted > 0) parts.push(`${data.total_accepted} 张加星`);
+          if (data.total_rejected > 0) parts.push(`${data.total_rejected} 张废片`);
+          if (data.blur_flagged > 0) parts.push(`${data.blur_flagged} 张模糊(仅标记)`);
+          setDetectMsg(
+            `一键选片完成：${parts.join("，")}` +
+            (data.untouched > 0 ? `，${data.untouched} 张未处理（需手动判断）` : "")
+          );
+          setSmartState("done");
+          refresh();
+          loadCounts();
+          fetchAICounts();
+          doneTimerRef.current = setTimeout(() => {
+            setSmartState("idle");
+            setDetectMsg(null);
+            setAiCategory(null);
+          }, 2000);
+        },
+        onTaskCancelled: () => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          setDetectMsg("选片已取消");
+          setSmartState("cull_ready");
+        },
+        onTaskError: (error) => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          setDetectMsg(error);
+          setSmartState("cull_ready");
+        },
+      });
     } catch (err: unknown) {
       setSmartState("cull_ready");
       setDetectMsg(err instanceof Error ? err.message : "选片失败");
@@ -762,8 +815,11 @@ const BrowserPage: React.FC = () => {
     }
 
     if (!window.confirm(
-      `AI 分析将依次执行以下 5 个步骤：\n\n· 闭眼检测（致命缺陷，自动判废）\n· 模糊检测（仅标记，不自动筛选）\n· 连拍分组（按时间聚类）\n· 重复检测（仅查剩余照片）\n· 最佳推荐\n\n每张照片只归入最先命中的分类。\n分析范围：${scopeLabel}照片\n整个过程耗时较长，无法中途取消。\n是否继续？`
+      `AI 分析将依次执行以下 5 个步骤：\n\n· 闭眼检测（致命缺陷，自动判废）\n· 模糊检测（仅标记，不自动筛选）\n· 连拍分组（按时间聚类）\n· 重复检测（仅查剩余照片）\n· 最佳推荐\n\n每张照片只归入最先命中的分类。\n分析范围：${scopeLabel}照片\n分析过程中可继续浏览照片，单击取消按钮可中止。\n是否继续？`
     )) return;
+
+    // Close any existing SSE stream
+    if (detectStreamRef.current) { detectStreamRef.current(); detectStreamRef.current = null; }
 
     setSmartState("analyzing");
     setDetectMsg(null);
@@ -774,42 +830,63 @@ const BrowserPage: React.FC = () => {
       const started = await analyzeAll(undefined, analysisFilterMode);
       if (!started.task_id) { setSmartState("idle"); setAiCategory(null); return; }
 
-      detectPollRef.current = setInterval(async () => {
-        try {
-          const p: DetectionProgressResponse = await analyzeProgress(started.task_id);
-          setDetectPhase(p.phase);
-          setDetectProgress(p.progress);
-          setDetectTotal(p.total);
-          if (p.status !== "running") {
-            if (detectPollRef.current) clearInterval(detectPollRef.current);
-            detectPollRef.current = null;
-            if (p.status === "completed") {
-              refresh();
-              loadCounts();
-              setSmartState("cull_ready");
-              setAiAnalysisDone(true);
-              setDetectMsg("AI 分析完成，点击 ⚡ 一键选片 应用推荐");
-              fetchAICounts();
-              // Fetch summary & show analysis result modal
-              (async () => {
-                try {
-                  const s = await fetchAISummary();
-                  if (s.total_analyzed > 0) {
-                    setAiSummary(s);
-                    setShowSummary(true);
-                  }
-                } catch {
-                  // Summary fetch failed — modal won't show, analysis bar is still visible
-                }
-              })();
-            } else if (p.status === "cancelled") {
-              setDetectMsg("AI 分析已取消");
-              setSmartState("idle");
-              setAiCategory(null);
+      analyzeTaskIdRef.current = started.task_id;
+
+      detectStreamRef.current = connectAnalyzeStream(started.task_id, {
+        onStepStart: (data) => {
+          setDetectPhase(data.phase);
+          setDetectTotal(data.total);
+          setDetectProgress(0);
+        },
+        onProgress: (data) => {
+          setDetectPhase(data.phase);
+          setDetectProgress(data.progress);
+          setDetectTotal(data.total);
+        },
+        onStepComplete: (_data) => {
+          // Show AI category bar as soon as first step completes
+          setAiAnalysisDone(true);
+          fetchAICounts();
+          refresh();
+          loadCounts();
+        },
+        onTaskComplete: (data) => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          refresh();
+          loadCounts();
+          setSmartState("cull_ready");
+          setAiAnalysisDone(true);
+          setDetectMsg("AI 分析完成，点击 ⚡ 一键选片 应用推荐");
+          fetchAICounts();
+          // Fetch summary & show analysis result modal
+          (async () => {
+            try {
+              const s = await fetchAISummary();
+              if (s.total_analyzed > 0) {
+                setAiSummary(s);
+                setShowSummary(true);
+              }
+            } catch {
+              // Summary fetch failed — modal won't show, analysis bar is still visible
             }
-          }
-        } catch { /* poll retry */ }
-      }, 400);
+          })();
+        },
+        onTaskCancelled: () => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          setDetectMsg("AI 分析已取消");
+          setSmartState("idle");
+          setAiCategory(null);
+        },
+        onTaskError: (error) => {
+          detectStreamRef.current = null;
+          analyzeTaskIdRef.current = null;
+          setSmartState("idle");
+          setDetectMsg(error);
+          setAiCategory(null);
+        },
+      });
     } catch (err: unknown) {
       setSmartState("idle");
       setDetectMsg(err instanceof Error ? err.message : "AI 分析失败");
@@ -1010,64 +1087,77 @@ const BrowserPage: React.FC = () => {
           <span className="detect-progress-pct">
             {detectTotal > 0 ? Math.round(detectProgress / detectTotal * 100) : 0}%
           </span>
+          {analyzeTaskIdRef.current && (smartState === "analyzing" || smartState === "culling") && (
+            <button
+              className="btn-cancel-task"
+              onClick={() => {
+                const tid = analyzeTaskIdRef.current;
+                if (tid) {
+                  if (smartState === "analyzing") cancelAnalyze(tid).catch(() => {});
+                  else cancelCull(tid).catch(() => {});
+                }
+              }}
+              title="取消当前任务"
+            >
+              ✕ 取消
+            </button>
+          )}
         </div>
       )}
 
-      {/* AI category filter bar (persists after first analysis completes) */}
-      {aiAnalysisDone && (
-        <div className="ai-category-bar">
-          <span className="ai-cat-label">🤖 基于全部照片</span>
-          <span
-            className={`ai-cat-chip${aiCategory === null ? " ai-cat-active" : ""}`}
-            onClick={() => setAiCategory(null)}
-          >
-            全部
-          </span>
-          <span
-            className={`ai-cat-chip${aiCategory === "closed_eye" ? " ai-cat-active" : ""} ai-cat-eye`}
-            onClick={() => setAiCategory("closed_eye")}
-          >
-            闭眼{eyeClosedCount > 0 ? ` (${eyeClosedCount})` : ""}
-          </span>
-          <span
-            className={`ai-cat-chip${aiCategory === "blur" ? " ai-cat-active" : ""} ai-cat-blur`}
-            onClick={() => setAiCategory("blur")}
-          >
-            模糊{blurCount > 0 ? ` (${blurCount})` : ""}
-          </span>
-          <span
-            className={`ai-cat-chip${aiCategory === "burst" ? " ai-cat-active" : ""} ai-cat-burst`}
-            onClick={() => setAiCategory("burst")}
-          >
-            连拍{burstCount > 0 ? ` (${burstCount})` : ""}
-          </span>
-          <span
-            className={`ai-cat-chip${aiCategory === "duplicate" ? " ai-cat-active" : ""} ai-cat-dup`}
-            onClick={() => setAiCategory("duplicate")}
-          >
-            重复{dupCount > 0 ? ` (${dupCount})` : ""}
-          </span>
-          <span
-            className={`ai-cat-chip${aiCategory === "best" ? " ai-cat-active" : ""} ai-cat-best`}
-            onClick={() => setAiCategory("best")}
-          >
-            最佳推荐{bestCount > 0 ? ` (${bestCount})` : ""}
-          </span>
-          <button
-            className="ai-summary-reopen-btn"
-            title="查看 AI 分析摘要"
-            onClick={async () => {
-              try {
-                const s = await fetchAISummary();
-                setAiSummary(s);
-                setShowSummary(true);
-              } catch { /* ignore */ }
-            }}
-          >
-            📊
-          </button>
-        </div>
-      )}
+      {/* AI category filter bar — always visible, counts update as analysis runs */}
+      <div className="ai-category-bar">
+        <span className="ai-cat-label">🤖 基于全部照片</span>
+        <span
+          className={`ai-cat-chip${aiCategory === null ? " ai-cat-active" : ""}`}
+          onClick={() => setAiCategory(null)}
+        >
+          全部
+        </span>
+        <span
+          className={`ai-cat-chip${aiCategory === "closed_eye" ? " ai-cat-active" : ""} ai-cat-eye`}
+          onClick={() => setAiCategory("closed_eye")}
+        >
+          闭眼{eyeClosedCount > 0 ? ` (${eyeClosedCount})` : ""}
+        </span>
+        <span
+          className={`ai-cat-chip${aiCategory === "blur" ? " ai-cat-active" : ""} ai-cat-blur`}
+          onClick={() => setAiCategory("blur")}
+        >
+          模糊{blurCount > 0 ? ` (${blurCount})` : ""}
+        </span>
+        <span
+          className={`ai-cat-chip${aiCategory === "burst" ? " ai-cat-active" : ""} ai-cat-burst`}
+          onClick={() => setAiCategory("burst")}
+        >
+          连拍{burstCount > 0 ? ` (${burstCount})` : ""}
+        </span>
+        <span
+          className={`ai-cat-chip${aiCategory === "duplicate" ? " ai-cat-active" : ""} ai-cat-dup`}
+          onClick={() => setAiCategory("duplicate")}
+        >
+          重复{dupCount > 0 ? ` (${dupCount})` : ""}
+        </span>
+        <span
+          className={`ai-cat-chip${aiCategory === "best" ? " ai-cat-active" : ""} ai-cat-best`}
+          onClick={() => setAiCategory("best")}
+        >
+          最佳推荐{bestCount > 0 ? ` (${bestCount})` : ""}
+        </span>
+        <button
+          className="ai-summary-reopen-btn"
+          title="查看 AI 分析摘要"
+          onClick={async () => {
+            try {
+              const s = await fetchAISummary();
+              setAiSummary(s);
+              setShowSummary(true);
+            } catch { /* ignore */ }
+          }}
+        >
+          📊
+        </button>
+      </div>
 
       <div className="browser-body">
         <div className="browser-grid-area">
