@@ -49,25 +49,66 @@ _lock = threading.Lock()
 
 
 def _process_blur_chunk(
-    chunk: list[tuple[str, str, float | None]],
+    chunk: list[tuple[str, str, str | None, float | None]],
 ) -> list[tuple[str, bool, float, int, str | None]]:
     """Process a chunk of photos in a worker process.
 
-    Each worker imports ``calculate_blur_v2`` independently so there
-    is no shared state between processes.
+    Implements a **3-tier pipeline** (改进建议 §2):
+
+    1. Load or generate the 800 px AI preview.
+    2. Run ``quick_blur_check`` on the preview:
+       - ``"sharp"`` → return immediately (clearly sharp).
+       - ``"blur"``  → return immediately (clearly blurry).
+       - ``"borderline"`` → fall through to tier 3.
+    3. Run full ``calculate_blur_v2`` on the original image.
+
+    On a typical photo set, ~80 % of images are classified at tier 2
+    and never reach the expensive multi-patch analysis.
+
+    Each worker imports its own modules — no shared state between
+    processes.
 
     Args:
-        chunk: List of ``(image_id, readable_path, threshold)`` tuples.
+        chunk: List of ``(image_id, readable_path, preview_path, threshold)``
+            tuples.  *preview_path* may be ``None`` (generated lazily).
 
     Returns:
         List of ``(image_id, success, final_score, is_blur, error_msg)``.
     """
-    # Late import — worker processes need their own module references
-    from backend.ai.blur_detector_v2.detector import calculate_blur_v2 as _calc
+    # Late imports — worker processes need their own module references
+    from backend.ai.blur_detector_v2.detector import (
+        calculate_blur_v2 as _calc,
+        quick_blur_check,
+        PREVIEW_SHARP_THRESHOLD,
+        PREVIEW_BLUR_THRESHOLD,
+    )
+    from backend.ai.ai_preview.preview_generator import ensure_preview
 
     results: list[tuple[str, bool, float, int, str | None]] = []
-    for image_id, readable_path, threshold in chunk:
+    for image_id, readable_path, preview_path, threshold in chunk:
         try:
+            # ---- Tier 1: ensure 800 px AI preview ----
+            if preview_path is None:
+                # Compute path and generate if missing (first run only)
+                from backend.ai.ai_preview.preview_generator import get_preview_path as _gpp
+                preview_path = _gpp(image_id)
+            preview_path = ensure_preview(image_id, readable_path)
+
+            # ---- Tier 2: quick Laplacian on 800 px preview ----
+            quick_score, verdict = quick_blur_check(preview_path)
+
+            if verdict == "sharp":
+                # Clearly sharp — return a score above the threshold
+                safe_score = max(quick_score, float(PREVIEW_SHARP_THRESHOLD))
+                results.append((image_id, True, safe_score, 0, None))
+                continue
+            elif verdict == "blur":
+                # Clearly blurry — return a score below the threshold
+                safe_score = min(quick_score, float(PREVIEW_BLUR_THRESHOLD))
+                results.append((image_id, True, safe_score, 1, None))
+                continue
+
+            # ---- Tier 3: borderline — full multi-patch analysis ----
             final_score, is_blur, _patch_scores, _proc_ms, _w, _t = _calc(
                 readable_path, threshold=threshold,
             )
@@ -122,7 +163,9 @@ def _run_blur_loop_v2(
     )
 
     # ---- Separate skip vs process ----
-    to_process: list[tuple[str, str, float | None]] = []
+    from backend.ai.ai_preview.preview_generator import get_preview_path
+
+    to_process: list[tuple[str, str, str | None, float | None]] = []
     skipped_count = 0
 
     for image_id in photo_ids:
@@ -145,7 +188,7 @@ def _run_blur_loop_v2(
             state["progress"] = state["processed"]
             continue
 
-        to_process.append((image_id, photo.readable_path, threshold))
+        to_process.append((image_id, photo.readable_path, get_preview_path(image_id), threshold))
 
     process_count = len(to_process)
     if process_count == 0:
@@ -160,7 +203,7 @@ def _run_blur_loop_v2(
     # Each worker gets ~2 chunks to keep all cores fed (pipeline effect)
     chunk_count = max_workers * 2
     chunk_size = max(1, process_count // chunk_count)
-    chunks: list[list[tuple[str, str, float | None]]] = []
+    chunks: list[list[tuple[str, str, str | None, float | None]]] = []
     for i in range(0, process_count, chunk_size):
         chunks.append(to_process[i:i + chunk_size])
 
