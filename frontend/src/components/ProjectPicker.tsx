@@ -175,9 +175,14 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
         <button
           className="btn-primary btn-create-project"
           onClick={() => {
-            setNewName("");
-            setCreateError(null);
-            setShowCreate(true);
+            setShowCreate(false);
+            // Use setTimeout to ensure any stale dialog state is fully
+            // cleaned up before re-opening (prevents stuck disabled input).
+            setTimeout(() => {
+              setNewName("");
+              setCreateError(null);
+              setShowCreate(true);
+            }, 0);
           }}
         >
           ＋ 新建项目

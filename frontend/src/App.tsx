@@ -9,7 +9,7 @@
  * ErrorBoundary prevents full white-screen on crash.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import BrowserPage from "./pages/BrowserPage";
 import ProjectPicker from "./components/ProjectPicker";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
@@ -87,12 +87,12 @@ const App: React.FC = () => {
 
   // ── Callbacks ─────────────────────────────────────────────────────
 
-  const handleProjectOpened = (project: ProjectInfo) => {
+  const handleProjectOpened = useCallback((project: ProjectInfo) => {
     setCurrentProject(project);
     setAppPhase("browsing");
-  };
+  }, []);
 
-  const handleProjectClosed = async () => {
+  const handleProjectClosed = useCallback(async () => {
     // Sync backend — clear the current project so a subsequent open
     // starts from a clean state.  Swallow errors so the UI always
     // returns to the picker even if the backend is unreachable.
@@ -103,7 +103,7 @@ const App: React.FC = () => {
     }
     setCurrentProject(null);
     setAppPhase("picking_project");
-  };
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────
 
