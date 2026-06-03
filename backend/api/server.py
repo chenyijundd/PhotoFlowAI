@@ -12,6 +12,7 @@ from .photo_service import router as photo_router
 from .detail_service import router as detail_router
 from .ai_service import router as ai_router
 from .burst_service import router as burst_router
+from .project_service import router as project_router
 from backend.importer.import_service import router as import_router
 from .export_service import router as export_router
 from database.connection import init_database, close_all_pools
@@ -20,8 +21,12 @@ from backend.logging_config import setup_all_logging
 # Initialize rotating log handlers
 setup_all_logging()
 
-# Ensure database and schema exist at startup
+# Ensure default database and schema exist at startup (legacy single-project mode)
 init_database()
+
+# Initialise the project manager (creates meta-database if needed)
+from backend.project_manager import get_project_manager
+get_project_manager()
 
 app = FastAPI(title="PhotoFlow AI Backend", version="0.1.0")
 
@@ -37,6 +42,7 @@ app.include_router(photo_router)
 app.include_router(detail_router)
 app.include_router(ai_router)
 app.include_router(burst_router)
+app.include_router(project_router)
 app.include_router(import_router)
 app.include_router(export_router)
 

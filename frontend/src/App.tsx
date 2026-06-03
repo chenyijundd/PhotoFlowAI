@@ -1,13 +1,17 @@
 /**
  * PhotoFlow AI - Root App Component
  *
- * Manages backend connectivity and renders the photo browser.
+ * Manages backend connectivity and multi-project routing:
+ *   - Backend not connected → loading / retry screen
+ *   - No project open         → ProjectPicker (landing page)
+ *   - Project open            → BrowserPage (existing workflow)
  *
  * ErrorBoundary prevents full white-screen on crash.
  */
 
 import React, { useState, useEffect } from "react";
 import BrowserPage from "./pages/BrowserPage";
+import ProjectPicker from "./components/ProjectPicker";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
 import { BurstCompareProvider } from "./context/BurstCompareContext";
@@ -15,12 +19,18 @@ import { LightboxModeProvider } from "./context/LightboxModeContext";
 import { UndoRedoProvider } from "./context/UndoRedoContext";
 import { BatchSelectionProvider } from "./context/BatchSelectionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
+import type { ProjectInfo } from "./api/projectApi";
+import { fetchCurrentProject } from "./api/projectApi";
 
 type BackendStatus = "connecting" | "connected" | "error";
+type AppPhase = "connecting" | "picking_project" | "browsing";
 
 const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting");
+  const [appPhase, setAppPhase] = useState<AppPhase>("connecting");
+  const [currentProject, setCurrentProject] = useState<ProjectInfo | null>(null);
 
+  // ── Backend health check ──────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -48,6 +58,48 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // ── Once backend is connected, check if a project is already open ──
+  useEffect(() => {
+    if (backendStatus !== "connected") return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const project = await fetchCurrentProject();
+        if (!cancelled) {
+          if (project) {
+            setCurrentProject(project);
+            setAppPhase("browsing");
+          } else {
+            setAppPhase("picking_project");
+          }
+        }
+      } catch {
+        // API not available or error — fall back to browsing (legacy single-db mode)
+        if (!cancelled) {
+          setAppPhase("browsing");
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [backendStatus]);
+
+  // ── Callbacks ─────────────────────────────────────────────────────
+
+  const handleProjectOpened = (project: ProjectInfo) => {
+    setCurrentProject(project);
+    setAppPhase("browsing");
+  };
+
+  const handleProjectClosed = () => {
+    setCurrentProject(null);
+    setAppPhase("picking_project");
+  };
+
+  // ── Render ────────────────────────────────────────────────────────
+
+  // Backend not connected yet
   if (backendStatus !== "connected") {
     return (
       <div className="state-screen loading-state">
@@ -62,6 +114,16 @@ const App: React.FC = () => {
     );
   }
 
+  // Project picker (no project open)
+  if (appPhase === "picking_project") {
+    return (
+      <ErrorBoundary>
+        <ProjectPicker onProjectOpened={handleProjectOpened} />
+      </ErrorBoundary>
+    );
+  }
+
+  // Normal browsing mode (project is open, or legacy single-db fallback)
   return (
     <ErrorBoundary>
       <PhotoSelectionProvider>
@@ -70,7 +132,10 @@ const App: React.FC = () => {
         <CompareModeProvider>
         <BurstCompareProvider>
         <LightboxModeProvider>
-          <BrowserPage />
+          <BrowserPage
+            projectName={currentProject?.name ?? null}
+            onProjectClosed={currentProject ? handleProjectClosed : undefined}
+          />
         </LightboxModeProvider>
         </BurstCompareProvider>
       </CompareModeProvider>

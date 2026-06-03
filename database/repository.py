@@ -22,9 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 class PhotoRepository:
-    """Repository for photo CRUD operations using the Repository pattern."""
+    """Repository for photo CRUD operations using the Repository pattern.
+
+    When *db_path* is not provided, the repository automatically uses the
+    database of the currently-open project (via ProjectManager).  Falls back
+    to the legacy default database when no project is open.
+    """
 
     def __init__(self, db_path: Optional[str] = None):
+        if db_path is None:
+            try:
+                from backend.project_manager import get_current_db_path
+                db_path = get_current_db_path()
+            except ImportError:
+                pass
         self.db_path = db_path
 
     def init_database(self) -> str:

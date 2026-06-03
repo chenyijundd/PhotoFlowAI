@@ -13,10 +13,12 @@ frontend/dist/
 frontend/release/
 
 # Database
-database/photoflow.db
 database/*.db
 database/*.db-shm
 database/*.db-wal
+database/*.photoflow
+database/*.photoflow-shm
+database/*.photoflow-wal
 
 # Cache & Temp
 cache/*

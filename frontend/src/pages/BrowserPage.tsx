@@ -35,7 +35,10 @@ function cleanIpcError(raw: string): string {
     .replace(/^Error:\s*/, "");
 }
 
-const BrowserPage: React.FC = () => {
+const BrowserPage: React.FC<{
+  projectName?: string | null;
+  onProjectClosed?: () => void;
+}> = ({ projectName, onProjectClosed }) => {
   const [filterMode, setFilterMode] = useState<PhotoFilterMode>("all");
   const [starredCount, setStarredCount] = useState(0);
 
@@ -1067,6 +1070,21 @@ const BrowserPage: React.FC = () => {
 
       <header className="browser-header">
         <h1 className="browser-title">PhotoFlow AI</h1>
+        {projectName && (
+          <div className="browser-project-indicator" title="当前项目">
+            <span className="browser-project-icon">📁</span>
+            <span className="browser-project-name">{projectName}</span>
+            {onProjectClosed && (
+              <button
+                className="browser-project-close-btn"
+                onClick={onProjectClosed}
+                title="返回项目列表"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
         <div className="browser-header-center">
           <div className="filter-bar">
             <button
