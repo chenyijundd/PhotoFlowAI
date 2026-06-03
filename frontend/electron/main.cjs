@@ -321,7 +321,11 @@ ipcMain.handle("burst-reject-all-rest", async () => {
 ipcMain.handle("cull-all", async () => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/cull-all`;
   const response = await fetch(url, { method: "POST" });
-  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  if (!response.ok) {
+    // Extract FastAPI error detail from the response body
+    const detail = await response.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${response.status}`);
+  }
   return response.json();
 });
 
