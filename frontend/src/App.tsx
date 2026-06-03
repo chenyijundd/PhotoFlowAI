@@ -20,7 +20,7 @@ import { UndoRedoProvider } from "./context/UndoRedoContext";
 import { BatchSelectionProvider } from "./context/BatchSelectionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type { ProjectInfo } from "./api/projectApi";
-import { fetchCurrentProject } from "./api/projectApi";
+import { fetchCurrentProject, closeProject } from "./api/projectApi";
 
 type BackendStatus = "connecting" | "connected" | "error";
 type AppPhase = "connecting" | "picking_project" | "browsing";
@@ -92,7 +92,15 @@ const App: React.FC = () => {
     setAppPhase("browsing");
   };
 
-  const handleProjectClosed = () => {
+  const handleProjectClosed = async () => {
+    // Sync backend — clear the current project so a subsequent open
+    // starts from a clean state.  Swallow errors so the UI always
+    // returns to the picker even if the backend is unreachable.
+    try {
+      await closeProject();
+    } catch {
+      // ignore — UI navigation proceeds regardless
+    }
     setCurrentProject(null);
     setAppPhase("picking_project");
   };

@@ -141,6 +141,7 @@ class ProjectManager:
         self._lock = threading.Lock()
         self._current_project: Optional[ProjectInfo] = None
         self._init_meta_db()
+        logger.info("ProjectManager initialised — meta-db at %s", self._meta_path)
 
     # ------------------------------------------------------------------
     # Internal helpers
