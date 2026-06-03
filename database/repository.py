@@ -640,6 +640,67 @@ class PhotoRepository:
             analyzed_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    # ---- RAW+JPEG pairing methods ----
+
+    def update_raw_jpeg_pair(self, image_id: str, pair_id: Optional[str]) -> bool:
+        """Set or clear the raw_jpeg_pair_id for a photo."""
+        return self._update_fields(image_id, raw_jpeg_pair_id=pair_id)
+
+    def update_raw_jpeg_pairs_batch(self, pairs: dict[str, Optional[str]]) -> int:
+        """Batch update raw_jpeg_pair_id for multiple photos in a single transaction.
+
+        Args:
+            pairs: dict mapping image_id → pair_id (or None to clear).
+
+        Returns the number of rows updated.
+        """
+        if not pairs:
+            return 0
+        updated = 0
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            for image_id, pair_id in pairs.items():
+                cursor = conn.execute(
+                    "UPDATE photos SET raw_jpeg_pair_id = ?, updated_at = ? WHERE image_id = ?",
+                    (pair_id, now, image_id),
+                )
+                updated += cursor.rowcount
+        return updated
+
+    def get_photos_by_raw_jpeg_pair(self, pair_id: str) -> list:
+        """Retrieve all photos in a specific RAW+JPEG pair group."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE raw_jpeg_pair_id = ? ORDER BY file_name",
+                (pair_id,),
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_raw_jpeg_pair_count(self) -> int:
+        """Return the count of distinct RAW+JPEG pair groups."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT raw_jpeg_pair_id) FROM photos "
+                "WHERE raw_jpeg_pair_id IS NOT NULL"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_paired_photo_ids(self, image_id: str) -> list[str]:
+        """Return the image_ids of all photos paired with *image_id* (excluding itself).
+
+        Returns an empty list if the photo has no raw_jpeg_pair_id or no other members.
+        """
+        photo = self.get_photo_by_id(image_id)
+        if not photo or not photo.raw_jpeg_pair_id:
+            return []
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT image_id FROM photos WHERE raw_jpeg_pair_id = ? AND image_id != ?",
+                (photo.raw_jpeg_pair_id, image_id),
+            ).fetchall()
+            return [r[0] for r in rows]
+
     def _update_fields(self, image_id: str, **fields) -> bool:
         """Generic field updater. Builds SET clause from keyword arguments.
 

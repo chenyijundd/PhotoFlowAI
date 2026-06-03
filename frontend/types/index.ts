@@ -25,6 +25,7 @@ export interface PhotoInfo {
   burst_total: number | null;
   is_best_in_burst: number;
   is_best_in_duplicate: number;
+  raw_jpeg_pair_id: string | null;
 }
 
 /** Paginated response from GET /api/photos. */
@@ -33,6 +34,13 @@ export interface GetPhotosResponse {
   limit: number;
   offset: number;
   photos: PhotoInfo[];
+}
+
+/** A single member entry in a RAW+JPEG pair group. */
+export interface RawJpegPairMember {
+  image_id: string;
+  file_name: string;
+  is_raw: boolean;
 }
 
 /** Response from GET /api/photo/{image_id}. */
@@ -58,6 +66,8 @@ export interface PhotoDetailResponse {
   burst_total: number | null;
   is_best_in_burst: number;
   is_best_in_duplicate: number;
+  raw_jpeg_pair_id: string | null;
+  raw_jpeg_pair_members: RawJpegPairMember[] | null;
 }
 
 /** Response from PATCH /api/photo/{image_id}/star. */
@@ -76,6 +86,7 @@ export interface ImportResponse {
   errors: number;
   removed?: number;
   raw_count?: number;
+  pair_count?: number;
 }
 
 /** Response from GET /api/photos/starred/count. */

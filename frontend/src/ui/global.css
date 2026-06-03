@@ -462,6 +462,21 @@ body {
   border: 1px solid #ffd700;
 }
 
+.photo-card-rawpair-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background-color: #0d7377;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  opacity: 0.85;
+}
+
 .photo-card-placeholder {
   display: flex;
   align-items: center;
@@ -883,6 +898,36 @@ body {
   font-family: monospace;
   font-size: 12px;
   color: #7a7a9a;
+}
+
+/* ---- RAW+JPEG Pair Members ---- */
+
+.rawpair-member {
+  white-space: nowrap;
+}
+
+.rawpair-member--current {
+  font-weight: 600;
+}
+
+.rawpair-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 2px;
+  line-height: 1.4;
+  margin-right: 2px;
+}
+
+.rawpair-tag--raw {
+  background-color: #b35900;
+  color: #fff;
+}
+
+.rawpair-tag--jpg {
+  background-color: #0d7377;
+  color: #fff;
 }
 
 /* ---- Selected Card Highlight ---- */

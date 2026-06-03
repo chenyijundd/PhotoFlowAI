@@ -17,6 +17,7 @@ PHOTO_COLUMNS = (
     "file_name",
     "file_path",
     "raw_preview_path",
+    "raw_jpeg_pair_id",
     "thumbnail_path",
     "file_size",
     "width",
@@ -49,6 +50,7 @@ class PhotoRecord:
     file_name: str
     file_path: str
     raw_preview_path: Optional[str] = None
+    raw_jpeg_pair_id: Optional[str] = None
     thumbnail_path: Optional[str] = None
     file_size: int = 0
     width: int = 0

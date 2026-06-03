@@ -159,6 +159,9 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
               {photo.is_rejected === 1 && (
                 <div className="photo-card-reject-badge">废片</div>
               )}
+              {photo.raw_jpeg_pair_id && (
+                <div className="photo-card-rawpair-badge" title="RAW+JPEG 配对">RAW+JPG</div>
+              )}
             </>
           ) : (
             <div className="photo-card-placeholder">
@@ -196,6 +199,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
       prevPhoto.burst_group === nextPhoto.burst_group &&
       prevPhoto.is_best_in_burst === nextPhoto.is_best_in_burst &&
       prevPhoto.is_best_in_duplicate === nextPhoto.is_best_in_duplicate &&
+      prevPhoto.raw_jpeg_pair_id === nextPhoto.raw_jpeg_pair_id &&
       prevProps.isBatchSelected === nextProps.isBatchSelected &&
       prevProps.style === nextProps.style
     );

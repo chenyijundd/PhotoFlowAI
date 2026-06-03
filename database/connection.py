@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS photos (
     file_name TEXT,
     file_path TEXT,
     raw_preview_path TEXT DEFAULT NULL,
+    raw_jpeg_pair_id TEXT DEFAULT NULL,
     thumbnail_path TEXT,
     file_size INTEGER,
     width INTEGER,
@@ -261,5 +262,11 @@ def init_database(db_path: Optional[str] = None) -> str:
                 if "raw_preview_path" not in cols:
                     conn.execute(
                         "ALTER TABLE photos ADD COLUMN raw_preview_path TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add raw_jpeg_pair_id column if missing (v1.3 — RAW+JPEG pairing)
+                if "raw_jpeg_pair_id" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN raw_jpeg_pair_id TEXT DEFAULT NULL"
                     )
     return path

@@ -88,6 +88,7 @@ async def get_photos(
             "burst_position": p.burst_position,
             "is_best_in_burst": p.is_best_in_burst,
             "is_best_in_duplicate": p.is_best_in_duplicate,
+            "raw_jpeg_pair_id": p.raw_jpeg_pair_id,
         })
 
     return {
@@ -124,6 +125,7 @@ def _build_photo_list_response(photos, offset, limit):
             "burst_position": p.burst_position,
             "is_best_in_burst": p.is_best_in_burst,
             "is_best_in_duplicate": p.is_best_in_duplicate,
+            "raw_jpeg_pair_id": p.raw_jpeg_pair_id,
         })
     return {
         "total": len(photos),
@@ -290,6 +292,7 @@ async def get_photos_by_duplicate_group(group_id: str):
             "is_rejected": p.is_rejected,
             "is_duplicate": p.is_duplicate,
             "duplicate_group": p.duplicate_group,
+            "raw_jpeg_pair_id": p.raw_jpeg_pair_id,
         })
 
     return {"photos": result, "group_id": group_id, "total": len(result)}
@@ -436,6 +439,7 @@ async def get_burst_group_photos_endpoint(group_id: str):
             "duplicate_group": p.duplicate_group,
             "burst_group": p.burst_group,
             "burst_position": p.burst_position,
+            "raw_jpeg_pair_id": p.raw_jpeg_pair_id,
         })
 
     return {"photos": result, "group_id": group_id, "total": len(result)}

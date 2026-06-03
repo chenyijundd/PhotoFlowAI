@@ -10,7 +10,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import FullsizePreview from "./FullsizePreview";
 import BurstFilmstrip from "./BurstFilmstrip";
 import { fetchPhotoDetail } from "../api/photoApi";
-import type { PhotoDetailResponse, ZoomMode } from "../../types";
+import type { PhotoDetailResponse, RawJpegPairMember, ZoomMode } from "../../types";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -135,6 +135,22 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
           <div className="detail-field">
             <span className="detail-label">重复分组</span>
             <span className="detail-value">{detail.duplicate_group}</span>
+          </div>
+        )}
+        {detail?.raw_jpeg_pair_id && detail.raw_jpeg_pair_members && detail.raw_jpeg_pair_members.length > 1 && (
+          <div className="detail-field">
+            <span className="detail-label">RAW+JPEG 配对</span>
+            <span className="detail-value">
+              {detail.raw_jpeg_pair_members.map((m: RawJpegPairMember, i: number) => (
+                <span key={m.image_id} className={`rawpair-member${m.image_id === detail.image_id ? " rawpair-member--current" : ""}`}>
+                  {i > 0 && " · "}
+                  <span className={`rawpair-tag${m.is_raw ? " rawpair-tag--raw" : " rawpair-tag--jpg"}`}>
+                    {m.is_raw ? "RAW" : "JPG"}
+                  </span>
+                  {" "}{m.file_name}
+                </span>
+              ))}
+            </span>
           </div>
         )}
         {detail?.burst_group && (

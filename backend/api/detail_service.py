@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from database.repository import PhotoRepository
+from backend.raw_preview.extractor import is_raw_file
 
 # Ensure HEIC/HEIF support is registered before any PIL operations
 try:
@@ -59,6 +60,19 @@ async def get_photo_detail(image_id: str):
     if p.burst_group:
         burst_total = repo.get_burst_group_size(p.burst_group)
 
+    # Build RAW+JPEG pair members list
+    raw_jpeg_pair_members = None
+    if p.raw_jpeg_pair_id:
+        paired = repo.get_photos_by_raw_jpeg_pair(p.raw_jpeg_pair_id)
+        raw_jpeg_pair_members = [
+            {
+                "image_id": m.image_id,
+                "file_name": m.file_name,
+                "is_raw": is_raw_file(m.file_path),
+            }
+            for m in paired
+        ]
+
     return {
         "image_id": p.image_id,
         "file_name": p.file_name,
@@ -81,6 +95,8 @@ async def get_photo_detail(image_id: str):
         "burst_total": burst_total,
         "is_best_in_burst": p.is_best_in_burst,
         "is_best_in_duplicate": p.is_best_in_duplicate,
+        "raw_jpeg_pair_id": p.raw_jpeg_pair_id,
+        "raw_jpeg_pair_members": raw_jpeg_pair_members,
     }
 
 
@@ -108,6 +124,19 @@ async def update_photo_star(image_id: str, body: StarUpdateRequest):
     # When starring, clear reject so the photo only appears in 已选
     if body.star_rating == 1 and p.is_rejected == 1:
         repo.update_reject_status(image_id, 0, is_manual=True)
+
+    # Sync star rating to RAW+JPEG paired photos
+    paired_ids = repo.get_paired_photo_ids(image_id)
+    for pid in paired_ids:
+        repo.update_star_rating(pid, body.star_rating, is_manual=True)
+        if body.star_rating == 1:
+            pp = repo.get_photo_by_id(pid)
+            if pp and pp.is_rejected == 1:
+                repo.update_reject_status(pid, 0, is_manual=True)
+    if paired_ids:
+        logger.info("Synced star=%d to %d paired photo(s) of %s",
+                     body.star_rating, len(paired_ids), image_id)
+
     return {"status": "ok", "image_id": image_id, "star_rating": body.star_rating}
 
 
@@ -139,6 +168,19 @@ async def update_photo_reject(image_id: str, body: RejectUpdateRequest):
     # When rejecting, clear star so the photo only appears in 废片
     if body.is_rejected == 1 and p.star_rating is not None and p.star_rating >= 1:
         repo.update_star_rating(image_id, 0, is_manual=True)
+
+    # Sync reject status to RAW+JPEG paired photos
+    paired_ids = repo.get_paired_photo_ids(image_id)
+    for pid in paired_ids:
+        repo.update_reject_status(pid, body.is_rejected, is_manual=True)
+        if body.is_rejected == 1:
+            pp = repo.get_photo_by_id(pid)
+            if pp and pp.star_rating is not None and pp.star_rating >= 1:
+                repo.update_star_rating(pid, 0, is_manual=True)
+    if paired_ids:
+        logger.info("Synced reject=%d to %d paired photo(s) of %s",
+                     body.is_rejected, len(paired_ids), image_id)
+
     return {"status": "ok", "image_id": image_id, "is_rejected": body.is_rejected}
 
 
@@ -171,6 +213,13 @@ async def batch_update(body: BatchUpdateRequest):
     try:
         repo = PhotoRepository()
         updated = 0
+
+        # Collect RAW+JPEG paired photo IDs (exclude those already in batch)
+        paired_ids: set[str] = set()
+        for image_id in body.photo_ids:
+            paired_ids.update(repo.get_paired_photo_ids(image_id))
+        paired_ids -= set(body.photo_ids)
+
         with repo.batch_transaction():
             for image_id in body.photo_ids:
                 p = repo.get_photo_by_id(image_id)
@@ -190,6 +239,24 @@ async def batch_update(body: BatchUpdateRequest):
                         repo.update_star_rating(image_id, 0, is_manual=True)
 
                 updated += 1
+
+            # Sync to RAW+JPEG paired photos
+            for pid in paired_ids:
+                p = repo.get_photo_by_id(pid)
+                if p is None:
+                    continue
+                if body.star_rating is not None:
+                    repo.update_star_rating(pid, body.star_rating, is_manual=True)
+                    if body.star_rating == 1 and p.is_rejected == 1:
+                        repo.update_reject_status(pid, 0, is_manual=True)
+                if body.is_rejected is not None:
+                    repo.update_reject_status(pid, body.is_rejected, is_manual=True)
+                    if body.is_rejected == 1 and p.star_rating is not None and p.star_rating >= 1:
+                        repo.update_star_rating(pid, 0, is_manual=True)
+                updated += 1
+
+        if paired_ids:
+            logger.info("Batch update synced to %d paired photo(s)", len(paired_ids))
 
         logger.info("Batch update: %d photos (star=%s, reject=%s)",
                      updated, body.star_rating, body.is_rejected)

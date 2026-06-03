@@ -19,9 +19,11 @@ Each photo is processed individually so a single failure does not
 abort the entire import.
 """
 
+import hashlib
 import logging
 import os
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
@@ -132,6 +134,71 @@ def _thumbnail_worker(args: tuple[str, str, str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# RAW+JPEG pair detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_raw_jpeg_pairs(repo: PhotoRepository) -> int:
+    """Detect RAW+JPEG pairs across ALL photos in the database.
+
+    Two (or more) files are paired when they share the same base stem
+    (filename without extension) in the same directory, and at least
+    one is a RAW file while at least one other is a non-RAW image.
+
+    Each pair group is assigned a stable *raw_jpeg_pair_id* (an MD5
+    hash of ``directory/stem``, truncated to 12 hex chars).
+
+    Returns the number of distinct pair groups detected.
+    """
+    all_photos = repo.get_all_photos()
+    if not all_photos:
+        return 0
+
+    # Group photos by (directory, stem)
+    groups: dict[tuple[str, str], list] = defaultdict(list)
+    for p in all_photos:
+        directory = os.path.dirname(p.file_path)
+        stem = os.path.splitext(p.file_name)[0]
+        groups[(directory, stem)].append(p)
+
+    # Find groups with RAW + non-RAW coexistence
+    pairs: dict[str, str | None] = {}
+    pair_groups = 0
+    for (directory, stem), photos in groups.items():
+        if len(photos) < 2:
+            continue
+        raw_photos = [p for p in photos if is_raw_file(p.file_path)]
+        non_raw = [p for p in photos if not is_raw_file(p.file_path)]
+        if not raw_photos or not non_raw:
+            continue
+
+        # Generate a stable pair ID from directory + stem
+        pair_id = hashlib.md5(
+            f"{directory}/{stem}".encode("utf-8")
+        ).hexdigest()[:12]
+
+        for p in photos:
+            pairs[p.image_id] = pair_id
+        pair_groups += 1
+        logger.debug(
+            "RAW+JPEG pair: %s ← %d RAW + %d non-RAW (%s)",
+            pair_id, len(raw_photos), len(non_raw), stem,
+        )
+
+    # Clear pair_id for photos that were previously paired but no longer are
+    # (e.g., one of the pair files was deleted from disk and then re-imported).
+    currently_paired = set(pairs.keys())
+    for p in all_photos:
+        if p.raw_jpeg_pair_id and p.image_id not in currently_paired:
+            pairs[p.image_id] = None
+
+    if pairs:
+        repo.update_raw_jpeg_pairs_batch(pairs)
+
+    return pair_groups
+
+
+# ---------------------------------------------------------------------------
 # Main import workflow
 # ---------------------------------------------------------------------------
 
@@ -170,7 +237,7 @@ def import_directory(directory: str) -> dict:
     if not file_paths:
         logger.info("No supported images found in %s", directory)
         return {"total": 0, "imported": 0, "skipped": 0, "errors": 0,
-                "raw_count": 0, "removed": 0}
+                "raw_count": 0, "removed": 0, "pair_count": 0}
 
     scanned_photos: list[PhotoInfo] = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -194,7 +261,7 @@ def import_directory(directory: str) -> dict:
 
     if total == 0:
         return {"total": 0, "imported": 0, "skipped": 0, "errors": 0,
-                "raw_count": 0, "removed": 0}
+                "raw_count": 0, "removed": 0, "pair_count": 0}
 
     # ==================================================================
     # Step 2 — Parallel: extract RAW previews
@@ -285,6 +352,19 @@ def import_directory(directory: str) -> dict:
                 time.time() - t0, imported, skipped)
 
     # ==================================================================
+    # Step 4.5 — RAW+JPEG pair detection
+    # ==================================================================
+    logger.info("Step 4.5: RAW+JPEG 配对检测")
+    t0 = time.time()
+    pair_count = _detect_raw_jpeg_pairs(repo)
+    elapsed = time.time() - t0
+    if pair_count > 0:
+        logger.info(
+            "Step 4.5: 发现 %d 个 RAW+JPEG 配对组 (%.2fs)",
+            pair_count, elapsed,
+        )
+
+    # ==================================================================
     # Step 5 — Sync: remove photos from DB whose files no longer exist
     # ==================================================================
     logger.info("Step 5/6: Syncing deleted files")
@@ -310,11 +390,12 @@ def import_directory(directory: str) -> dict:
         "errors": thumb_errors,
         "raw_count": raw_count,
         "removed": removed,
+        "pair_count": pair_count,
     }
     logger.info(
         "Step 6/6: Import complete — total=%d imported=%d skipped=%d "
-        "raw=%d removed=%d errors=%d | %.1fs total",
-        total, imported, skipped, raw_count, removed, thumb_errors,
+        "raw=%d removed=%d pairs=%d errors=%d | %.1fs total",
+        total, imported, skipped, raw_count, removed, pair_count, thumb_errors,
         elapsed_total,
     )
     return result

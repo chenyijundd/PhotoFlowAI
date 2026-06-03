@@ -18,7 +18,7 @@ from PIL import Image
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from database.connection import DatabaseConnection, init_database, get_default_db_path
-from database.models import PhotoRecord
+from database.models import PhotoRecord, PHOTO_COLUMNS
 from database.repository import PhotoRepository
 
 
@@ -160,7 +160,7 @@ class TestPhotoRecord(unittest.TestCase):
     def test_to_row_values_length(self):
         r = make_photo()
         vals = r.to_row_values()
-        self.assertEqual(len(vals), 18)
+        self.assertEqual(len(vals), len(PHOTO_COLUMNS))
 
     def test_from_row_roundtrip(self):
         import sqlite3
@@ -192,7 +192,7 @@ class TestPhotoRecord(unittest.TestCase):
         self.assertIn("image_id", cols)
         self.assertIn("file_name", cols)
         ph = PhotoRecord.placeholders()
-        self.assertEqual(len(ph.split(", ")), 18)
+        self.assertEqual(len(ph.split(", ")), len(PHOTO_COLUMNS))
 
 
 class TestPhotoRepository(unittest.TestCase):
