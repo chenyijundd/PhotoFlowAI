@@ -95,6 +95,11 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
       setCreateError("请输入项目名称");
       return;
     }
+    // Duplicate name check
+    if (projects.some((p) => p.name === name)) {
+      setCreateError("项目名称已存在，请使用其他名称。");
+      return;
+    }
     // Limit to 5 projects (excluding archived)
     const activeCount = projects.filter((p) => !p.archived).length;
     if (activeCount >= 5) {
