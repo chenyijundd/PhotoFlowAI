@@ -224,26 +224,15 @@ const BrowserPage: React.FC = () => {
   }, [setOnChanged, refresh, loadCounts]);
 
   // On mount, detect if AI analysis was previously completed (across sessions).
-  // If the backend already has blur/duplicate/burst/best results, show the bar.
+  // AI category counts are already set by loadCounts() above via merged /api/photos/counts.
   useEffect(() => {
     (async () => {
       try {
-        const [blur, dup, burst, best, eye] = await Promise.all([
-          fetchBlurCount(),
-          fetchDuplicateCount(),
-          fetchBurstCount(),
-          fetchBestCount(),
-          fetchClosedEyeCount(),
-        ]);
-        const hasAIResults = blur.count > 0 || dup.count > 0 || burst.count > 0 || best.count > 0 || eye.count > 0;
+        const counts = await fetchCounts();
+        const hasAIResults = counts.blur > 0 || counts.duplicate > 0 || counts.burst > 0 || counts.best > 0 || counts.closed_eye > 0;
         if (hasAIResults) {
           setAiAnalysisDone(true);
         }
-        setBlurCount(blur.count);
-        setDupCount(dup.count);
-        setBurstCount(burst.count);
-        setBestCount(best.count);
-        setEyeClosedCount(eye.count);
       } catch {
         // Backend not ready or no AI results — bar stays hidden, which is correct
       }
