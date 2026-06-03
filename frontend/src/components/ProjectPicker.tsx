@@ -72,9 +72,13 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
     setCreateError(null);
     try {
       const project = await createProject(name);
+      // Must call openProject so the backend switches to the new project's
+      // database BEFORE BrowserPage mounts and starts fetching photos.
+      // Without this, PhotoRepository falls back to the legacy default db.
+      const opened = await openProject(project.id);
       setShowCreate(false);
       setNewName("");
-      onProjectOpened(project);
+      onProjectOpened(opened);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "创建失败");
     } finally {
