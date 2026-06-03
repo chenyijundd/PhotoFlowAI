@@ -15,7 +15,7 @@ import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
-import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
+import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchBlurCount, fetchDuplicateCount, fetchBurstCount, fetchBestCount, fetchClosedEyeCount, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
@@ -184,8 +184,7 @@ const BrowserPage: React.FC = () => {
     enabled: !isCompareMode && !isLightboxMode && !isBurstCompareMode,
   });
 
-  // Fetch all filter counts (basic + AI) in a single batch request.
-  // AI category counts come from the same DB scan — no extra HTTP requests.
+  // Fetch all filter counts in a single batch request
   const loadCounts = useCallback(async () => {
     try {
       const counts = await fetchCounts();
@@ -193,11 +192,6 @@ const BrowserPage: React.FC = () => {
       setStarredCount(counts.starred);
       setRejectedCount(counts.rejected);
       setUnprocessedCount(counts.unprocessed);
-      setBlurCount(counts.blur);
-      setDupCount(counts.duplicate);
-      setBurstCount(counts.burst);
-      setBestCount(counts.best);
-      setEyeClosedCount(counts.closed_eye);
     } catch {
       // silently ignore
     }
@@ -224,15 +218,26 @@ const BrowserPage: React.FC = () => {
   }, [setOnChanged, refresh, loadCounts]);
 
   // On mount, detect if AI analysis was previously completed (across sessions).
-  // AI category counts are already set by loadCounts() above via merged /api/photos/counts.
+  // If the backend already has blur/duplicate/burst/best results, show the bar.
   useEffect(() => {
     (async () => {
       try {
-        const counts = await fetchCounts();
-        const hasAIResults = counts.blur > 0 || counts.duplicate > 0 || counts.burst > 0 || counts.best > 0 || counts.closed_eye > 0;
+        const [blur, dup, burst, best, eye] = await Promise.all([
+          fetchBlurCount(),
+          fetchDuplicateCount(),
+          fetchBurstCount(),
+          fetchBestCount(),
+          fetchClosedEyeCount(),
+        ]);
+        const hasAIResults = blur.count > 0 || dup.count > 0 || burst.count > 0 || best.count > 0 || eye.count > 0;
         if (hasAIResults) {
           setAiAnalysisDone(true);
         }
+        setBlurCount(blur.count);
+        setDupCount(dup.count);
+        setBurstCount(burst.count);
+        setBestCount(best.count);
+        setEyeClosedCount(eye.count);
       } catch {
         // Backend not ready or no AI results — bar stays hidden, which is correct
       }
@@ -244,7 +249,25 @@ const BrowserPage: React.FC = () => {
     setAiCategory(null);
   }, [filterMode]);
 
-  // AI category counts are now included in loadCounts() — no separate fetch needed.
+  /** Fetch AI category counts after analysis completes. */
+  const fetchAICounts = useCallback(async () => {
+    try {
+      const [blur, dup, burst, best, eye] = await Promise.all([
+        fetchBlurCount(),
+        fetchDuplicateCount(),
+        fetchBurstCount(),
+        fetchBestCount(),
+        fetchClosedEyeCount(),
+      ]);
+      setBlurCount(blur.count);
+      setDupCount(dup.count);
+      setBurstCount(burst.count);
+      setBestCount(best.count);
+      setEyeClosedCount(eye.count);
+    } catch {
+      // silently ignore
+    }
+  }, []);
 
   /** Pick the next photo after a star/reject action. Always advances forward. */
   const getNextIdAfterAction = useCallback(
@@ -796,6 +819,7 @@ const BrowserPage: React.FC = () => {
         },
         onStepComplete: (_data) => {
           // Refresh counts and grid incrementally
+          fetchAICounts();
           refresh();
           loadCounts();
         },
@@ -813,6 +837,7 @@ const BrowserPage: React.FC = () => {
           setSmartState("done");
           refresh();
           loadCounts();
+          fetchAICounts();
           doneTimerRef.current = setTimeout(() => {
             setSmartState("idle");
             setDetectMsg(null);
@@ -837,7 +862,7 @@ const BrowserPage: React.FC = () => {
       const raw = err instanceof Error ? err.message : "选片失败";
       setDetectMsg(cleanIpcError(raw));
     }
-  }, [refresh, loadCounts]);
+  }, [refresh, loadCounts, fetchAICounts]);
 
 
   // Combined AI analysis handler (incremental: unanalyzed only, unless overridden)
@@ -887,6 +912,7 @@ const BrowserPage: React.FC = () => {
         onStepComplete: (_data) => {
           // Show AI category bar as soon as first step completes
           setAiAnalysisDone(true);
+          fetchAICounts();
           refresh();
           loadCounts();
         },
@@ -895,6 +921,7 @@ const BrowserPage: React.FC = () => {
           analyzeTaskIdRef.current = null;
           refresh();
           loadCounts();
+          fetchAICounts();
           if (data.total_analyzed > 0) {
             setSmartState("cull_ready");
             setAiAnalysisDone(true);
@@ -940,7 +967,7 @@ const BrowserPage: React.FC = () => {
       setDetectMsg(cleanIpcError(raw));
       setAiCategory(null);
     }
-  }, [refresh, loadCounts, filterMode]);
+  }, [refresh, loadCounts, filterMode, fetchAICounts]);
 
 
   // Open export dialog
