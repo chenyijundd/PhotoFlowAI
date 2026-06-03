@@ -289,9 +289,15 @@ class ProjectManager:
         return project
 
     def close_project(self) -> None:
-        """Close the current project, reverting to default database."""
+        """Close the current project, reverting to default database.
+
+        Refreshes photo/picked counts in the meta-database before closing
+        so the project list always shows up-to-date stats.
+        """
         with self._lock:
             if self._current_project:
+                # Save current stats to meta-db before closing
+                self._refresh_project_stats(self._current_project.db_path)
                 logger.info(
                     "Closed project '%s' (id=%s)",
                     self._current_project.name,
