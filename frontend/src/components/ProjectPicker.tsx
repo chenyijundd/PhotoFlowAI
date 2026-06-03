@@ -40,12 +40,16 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Focus input when dialog opens (cosmetic — input is always enabled)
+  // Reset form state and focus input when dialog opens.
+  // The 100ms delay gives the browser time to paint the fixed-position
+  // overlay before we try to focus — essential after window.confirm()
+  // has disrupted the event loop.
   useEffect(() => {
     if (showCreate) {
       setNewName("");
       setCreateError(null);
-      nameInputRef.current?.focus();
+      const id = setTimeout(() => nameInputRef.current?.focus(), 100);
+      return () => clearTimeout(id);
     }
   }, [showCreate]);
 
@@ -210,8 +214,11 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
       {/* ---- Create dialog ---- */}
       {showCreate && (
-        <div className="project-create-dialog">
-          <div className="project-create-card">
+        <div
+          className="project-create-dialog"
+          onClick={() => nameInputRef.current?.focus()}
+        >
+          <div className="project-create-card" onClick={(e) => e.stopPropagation()}>
             <h2>新建项目</h2>
             <label className="project-create-label">
               项目名称
@@ -229,7 +236,6 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
                   if (e.key === "Enter") handleCreate();
                   if (e.key === "Escape") setShowCreate(false);
                 }}
-                autoFocus
                 maxLength={100}
               />
             </label>
