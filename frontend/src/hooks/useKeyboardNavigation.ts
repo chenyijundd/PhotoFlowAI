@@ -200,10 +200,19 @@ export function useKeyboardNavigation({
   // Register via centralized keyboard manager
   useKeyboardHandler("grid-navigation", handleGridKey, KEY_PRIORITY.GRID, active);
 
-  // Auto-scroll grid when selection changes
+  // Auto-scroll grid when selection changes.
+  // Wrapped in requestAnimationFrame to ensure the DOM (including
+  // react-window's internal measurement lifecycle) is fully settled
+  // before scrollToItem is called.  Without this, scrollToItem may
+  // fire before the grid knows its correct viewport dimensions,
+  // causing the scroll to silently do nothing — particularly
+  // noticeable when API responses arrive very quickly.
   useEffect(() => {
     if (selectedIndex >= 0) {
-      scrollToIndex(selectedIndex);
+      const raf = requestAnimationFrame(() => {
+        scrollToIndex(selectedIndex);
+      });
+      return () => cancelAnimationFrame(raf);
     }
   }, [selectedIndex, scrollToIndex]);
 

@@ -24,6 +24,7 @@ the frame is soft (bokeh, plain backdrop).
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from typing import Tuple
@@ -82,6 +83,78 @@ the photo is **clearly sharp** — no need for full multi-patch analysis."""
 PREVIEW_BLUR_THRESHOLD: float = 25.0
 """Single-global-Laplacian score below this on an 800 px preview means
 the photo is **clearly blurry** — no need for full multi-patch analysis."""
+
+
+# ---------------------------------------------------------------------------
+# Cache-based re-judgment (改进建议 §5 — patch_scores 缓存)
+# ---------------------------------------------------------------------------
+
+
+# Recognised keys in the cached JSON blob.  We use short keys to keep the
+# stored text compact.
+#   w = weighted_score   (centre-weighted average of all patch scores)
+#   t = top_median_score  (median of the top-50 % patches)
+#   s = patch_scores      (raw per-patch Laplacian variance list, for diagnostics)
+
+
+def build_patch_scores_cache(
+    patch_scores: list[float],
+    weighted_score: float,
+    top_median_score: float,
+) -> str:
+    """Serialize intermediate blur-analysis results to a compact JSON string.
+
+    The returned string is stored in the database ``patch_scores`` column
+    and can be passed to :func:`judge_from_cache` later to re-evaluate
+    blur status under a **different threshold** without re-reading the
+    image file or recomputing Laplacian variances.
+
+    Args:
+        patch_scores: Per-patch Laplacian variance values (length = grid²).
+        weighted_score: Centre-weighted average of all patch scores.
+        top_median_score: Median of the top-50 % patches.
+
+    Returns:
+        A compact JSON string with keys ``w``, ``t``, ``s``.
+    """
+    # Round to save space and produce deterministic output
+    return json.dumps(
+        {
+            "w": round(weighted_score, 4),
+            "t": round(top_median_score, 4),
+            "s": [round(s, 4) for s in patch_scores],
+        },
+        separators=(",", ":"),
+    )
+
+
+def judge_from_cache(cached_json: str, threshold: float) -> tuple[float, int]:
+    """Re-evaluate blur status from cached intermediate scores.
+
+    This is the **fast path** for re-analysis: instead of loading the
+    image, running the multi-patch Laplacian pipeline, and computing
+    centre weights, we simply reconstruct the final composite score
+    from the pre-computed *weighted_score* and *top_median_score* and
+    compare against the new *threshold*.
+
+    Args:
+        cached_json: A JSON string previously produced by
+            :func:`build_patch_scores_cache`.
+        threshold: The blur threshold to compare against.
+
+    Returns:
+        ``(final_score, is_blur)`` where *is_blur* is 1 if
+        *final_score* < *threshold*, else 0.
+
+    Raises:
+        ValueError: If *cached_json* is malformed.
+    """
+    data = json.loads(cached_json)
+    weighted = float(data["w"])
+    top_median = float(data["t"])
+    final_score = weighted * WEIGHTED_WEIGHT + top_median * TOP_MEDIAN_WEIGHT
+    is_blur = 1 if final_score < threshold else 0
+    return final_score, is_blur
 
 
 def quick_blur_check(preview_path: str) -> Tuple[float, str]:

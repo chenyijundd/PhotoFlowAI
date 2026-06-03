@@ -50,7 +50,7 @@ _lock = threading.Lock()
 
 def _process_blur_chunk(
     chunk: list[tuple[str, str, str | None, float | None]],
-) -> list[tuple[str, bool, float, int, str | None]]:
+) -> list[tuple[str, bool, float, int, str | None, str | None]]:
     """Process a chunk of photos in a worker process.
 
     Implements a **3-tier pipeline** (改进建议 §2):
@@ -73,7 +73,10 @@ def _process_blur_chunk(
             tuples.  *preview_path* may be ``None`` (generated lazily).
 
     Returns:
-        List of ``(image_id, success, final_score, is_blur, error_msg)``.
+        List of ``(image_id, success, final_score, is_blur, error_msg,
+        patch_scores_json)``.  *patch_scores_json* is a compact JSON
+        string (see :func:`build_patch_scores_cache`) for Tier-3 results,
+        or ``None`` for Tier-1/2 results or failures.
     """
     # Late imports — worker processes need their own module references
     from backend.ai.blur_detector_v2.detector import (
@@ -81,10 +84,11 @@ def _process_blur_chunk(
         quick_blur_check,
         PREVIEW_SHARP_THRESHOLD,
         PREVIEW_BLUR_THRESHOLD,
+        build_patch_scores_cache,
     )
     from backend.ai.ai_preview.preview_generator import ensure_preview
 
-    results: list[tuple[str, bool, float, int, str | None]] = []
+    results: list[tuple[str, bool, float, int, str | None, str | None]] = []
     for image_id, readable_path, preview_path, threshold in chunk:
         try:
             # ---- Tier 1: ensure 800 px AI preview ----
@@ -100,21 +104,24 @@ def _process_blur_chunk(
             if verdict == "sharp":
                 # Clearly sharp — return a score above the threshold
                 safe_score = max(quick_score, float(PREVIEW_SHARP_THRESHOLD))
-                results.append((image_id, True, safe_score, 0, None))
+                results.append((image_id, True, safe_score, 0, None, None))
                 continue
             elif verdict == "blur":
                 # Clearly blurry — return a score below the threshold
                 safe_score = min(quick_score, float(PREVIEW_BLUR_THRESHOLD))
-                results.append((image_id, True, safe_score, 1, None))
+                results.append((image_id, True, safe_score, 1, None, None))
                 continue
 
             # ---- Tier 3: borderline — full multi-patch analysis ----
-            final_score, is_blur, _patch_scores, _proc_ms, _w, _t = _calc(
+            final_score, is_blur, patch_scores, _proc_ms, weighted_score, top_median = _calc(
                 readable_path, threshold=threshold,
             )
-            results.append((image_id, True, final_score, is_blur, None))
+            # Cache intermediate scores so re-analysis with a different
+            # threshold can skip the expensive Laplacian computation.
+            cache_json = build_patch_scores_cache(patch_scores, weighted_score, top_median)
+            results.append((image_id, True, final_score, is_blur, None, cache_json))
         except Exception as exc:
-            results.append((image_id, False, 0.0, 0, str(exc)))
+            results.append((image_id, False, 0.0, 0, str(exc), None))
     return results
 
 
@@ -162,11 +169,18 @@ def _run_blur_loop_v2(
         total, threshold, len(_skip), max_workers,
     )
 
-    # ---- Separate skip vs process ----
+    # ---- Separate skip vs process, checking patch_scores cache ----
     from backend.ai.ai_preview.preview_generator import get_preview_path
+    from backend.ai.blur_detector_v2.detector import (
+        judge_from_cache,
+        BLUR_THRESHOLD,
+    )
 
     to_process: list[tuple[str, str, str | None, float | None]] = []
+    cached_photos: list[tuple[str, str]] = []  # (image_id, patch_scores_json)
     skipped_count = 0
+
+    _effective_threshold = threshold if threshold is not None else BLUR_THRESHOLD
 
     for image_id in photo_ids:
         if state["cancelled"]:
@@ -188,7 +202,50 @@ def _run_blur_loop_v2(
             state["progress"] = state["processed"]
             continue
 
-        to_process.append((image_id, photo.readable_path, get_preview_path(image_id), threshold))
+        # ---- Cache fast-path: if this photo already has cached patch_scores,
+        #      we can re-judge without touching the image file (改进建议 §5) ----
+        if photo.patch_scores:
+            cached_photos.append((image_id, photo.patch_scores))
+        else:
+            to_process.append((image_id, photo.readable_path, get_preview_path(image_id), threshold))
+
+    # ---- Step A: Re-judge cached photos in main thread (milliseconds each) ----
+    if cached_photos:
+        logger.info(
+            "Blur V2: %d photos have cached patch_scores — re-judging with threshold=%.1f",
+            len(cached_photos), _effective_threshold,
+        )
+        with repo.batch_transaction():
+            for image_id, cache_json in cached_photos:
+                if state["cancelled"]:
+                    break
+                try:
+                    final_score, is_blur = judge_from_cache(cache_json, _effective_threshold)
+                    repo.update_blur_status(
+                        image_id, is_blur=is_blur,
+                        blur_score=round(final_score, 2),
+                    )
+                    state["processed"] += 1
+                    state["current_file"] = image_id
+                    if is_blur:
+                        state["blurred"] += 1
+                except Exception as exc:
+                    # Corrupted cache — clear it and add to worker queue
+                    logger.warning(
+                        "Blur V2: %s cache corrupted (%s), will recompute",
+                        image_id, exc,
+                    )
+                    repo.update_patch_scores(image_id, None)
+                    photo = repo.get_photo_by_id(image_id)
+                    if photo:
+                        to_process.append(
+                            (image_id, photo.readable_path, get_preview_path(image_id), threshold)
+                        )
+        state["progress"] = state["processed"]
+        logger.info(
+            "Blur V2: cache re-judge complete — %d processed, %d blurred",
+            len(cached_photos), state["blurred"],
+        )
 
     process_count = len(to_process)
     if process_count == 0:
@@ -199,7 +256,7 @@ def _run_blur_loop_v2(
         logger.info("=== Blur Detection V2 Complete (nothing to process) ===")
         return
 
-    # ---- Chunk the work ----
+    # ---- Chunk the (uncached) work ----
     # Each worker gets ~2 chunks to keep all cores fed (pipeline effect)
     chunk_count = max_workers * 2
     chunk_size = max(1, process_count // chunk_count)
@@ -247,12 +304,17 @@ def _run_blur_loop_v2(
 
                 # ---- Write results to DB (single-threaded, batched per chunk) ----
                 with repo.batch_transaction():
-                    for image_id, success, final_score, is_blur, error_msg in chunk_results:
+                    for image_id, success, final_score, is_blur, error_msg, cache_json in chunk_results:
                         if success:
                             repo.update_blur_status(
                                 image_id, is_blur=is_blur,
                                 blur_score=round(final_score, 2),
                             )
+                            # Persist intermediate scores for future
+                            # re-analysis with a different threshold
+                            # (改进建议 §5 — patch_scores 缓存)
+                            if cache_json:
+                                repo.update_patch_scores(image_id, cache_json)
                             state["processed"] += 1
                             if is_blur:
                                 state["blurred"] += 1
@@ -373,6 +435,12 @@ def detect_blur_batch(
     summary = BlurDetectionSummary(total=total)
     times: list[float] = []
 
+    from backend.ai.blur_detector_v2.detector import (
+        judge_from_cache,
+        build_patch_scores_cache,
+        BLUR_THRESHOLD,
+    )
+
     logger.info("=== Blur Detection V2 Start === total=%d", total)
 
     for idx, image_id in enumerate(photo_ids, 1):
@@ -384,14 +452,33 @@ def detect_blur_batch(
 
         t0 = time.perf_counter()
         try:
-            final_score, is_blur, patch_scores, proc_ms, weighted_score, top_median = (
-                calculate_blur_v2(photo.readable_path, threshold=threshold)
-            )
-            repo.update_blur_status(
-                image_id,
-                is_blur=is_blur,
-                blur_score=round(final_score, 2),
-            )
+            # ---- Cache fast-path (改进建议 §5) ----
+            if photo.patch_scores:
+                final_score, is_blur = judge_from_cache(
+                    photo.patch_scores,
+                    threshold if threshold is not None else BLUR_THRESHOLD,
+                )
+                proc_ms = (time.perf_counter() - t0) * 1000.0
+                # Re-use cached scores — just update the verdict
+                repo.update_blur_status(
+                    image_id,
+                    is_blur=is_blur,
+                    blur_score=round(final_score, 2),
+                )
+            else:
+                final_score, is_blur, patch_scores, proc_ms, weighted_score, top_median = (
+                    calculate_blur_v2(photo.readable_path, threshold=threshold)
+                )
+                repo.update_blur_status(
+                    image_id,
+                    is_blur=is_blur,
+                    blur_score=round(final_score, 2),
+                )
+                # Cache intermediate scores for future re-analysis
+                cache_json = build_patch_scores_cache(
+                    patch_scores, weighted_score, top_median,
+                )
+                repo.update_patch_scores(image_id, cache_json)
 
             if is_blur:
                 summary.blurred += 1
@@ -401,20 +488,26 @@ def detect_blur_batch(
             summary.scores.append(final_score)
             times.append(proc_ms)
 
-            logger.info(
-                "[%d/%d] %s | final=%.2f is_blur=%d (%.1fms)  "
-                "w_avg=%.2f top_med=%.2f  "
-                "composition: final = w_avg*0.4 + top_med*0.6  "
-                "patches=%s",
-                idx,
-                total,
-                image_id,
-                final_score,
-                is_blur,
-                proc_ms,
-                weighted_score,
-                top_median,
-                [round(s, 1) for s in patch_scores],
+            if photo.patch_scores:
+                logger.info(
+                    "[%d/%d] %s | final=%.2f is_blur=%d (%.1fms) [from cache]",
+                    idx, total, image_id, final_score, is_blur, proc_ms,
+                )
+            else:
+                logger.info(
+                    "[%d/%d] %s | final=%.2f is_blur=%d (%.1fms)  "
+                    "w_avg=%.2f top_med=%.2f  "
+                    "composition: final = w_avg*0.4 + top_med*0.6  "
+                    "patches=%s",
+                    idx,
+                    total,
+                    image_id,
+                    final_score,
+                    is_blur,
+                    proc_ms,
+                    weighted_score,
+                    top_median,
+                    [round(s, 1) for s in patch_scores],
             )
 
         except Exception as exc:

@@ -701,6 +701,27 @@ class PhotoRepository:
             ).fetchall()
             return [r[0] for r in rows]
 
+    # ---- Blur patch_scores cache ----
+
+    def update_patch_scores(self, image_id: str, scores_json: Optional[str]) -> bool:
+        """Store or clear the cached patch_scores for a photo.
+
+        Args:
+            image_id: The photo's unique identifier.
+            scores_json: JSON string with cached scores, or None to clear.
+
+        Returns True if the row was updated.
+        """
+        # _update_fields filters out None values, so handle the clear
+        # case with a direct UPDATE that explicitly sets NULL.
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "UPDATE photos SET patch_scores = ?, updated_at = ? WHERE image_id = ?",
+                (scores_json, now, image_id),
+            )
+            return cursor.rowcount > 0
+
     def _update_fields(self, image_id: str, **fields) -> bool:
         """Generic field updater. Builds SET clause from keyword arguments.
 

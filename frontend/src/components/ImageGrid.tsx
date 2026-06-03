@@ -93,7 +93,9 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
           const cols = columnCountRef.current || 1;
           const rowIndex = Math.floor(index / cols);
           const columnIndex = index % cols;
-          gridRef.current?.scrollToItem({ rowIndex, columnIndex, align: "center" });
+          // "smart" scrolls only when the item is not already fully visible,
+          // avoiding unnecessary jumps.  "center" would always re-centre.
+          gridRef.current?.scrollToItem({ rowIndex, columnIndex, align: "smart" });
         },
       }),
       [],

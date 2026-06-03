@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS photos (
     file_path TEXT,
     raw_preview_path TEXT DEFAULT NULL,
     raw_jpeg_pair_id TEXT DEFAULT NULL,
+    patch_scores TEXT DEFAULT NULL,
     thumbnail_path TEXT,
     file_size INTEGER,
     width INTEGER,
@@ -268,5 +269,11 @@ def init_database(db_path: Optional[str] = None) -> str:
                 if "raw_jpeg_pair_id" not in cols:
                     conn.execute(
                         "ALTER TABLE photos ADD COLUMN raw_jpeg_pair_id TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add patch_scores column if missing (v1.4 — blur cache)
+                if "patch_scores" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN patch_scores TEXT DEFAULT NULL"
                     )
     return path
