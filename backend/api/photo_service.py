@@ -309,9 +309,10 @@ async def get_starred_count():
 
 @router.get("/photos/counts")
 async def get_all_counts():
-    """Return all filter counts in a single request.
+    """Return all filter counts (basic + AI) in a single request.
 
-    Used by the frontend filter bar to avoid N+1 HTTP round trips.
+    A single DB scan replaces the previous 6 HTTP requests
+    (1 basic + 5 AI category counts), eliminating N+1 round trips.
     """
     try:
         repo = PhotoRepository()
@@ -321,6 +322,12 @@ async def get_all_counts():
         starred = 0
         rejected = 0
         unprocessed = 0
+        blur = 0
+        duplicate = 0
+        closed_eye = 0
+        best = 0
+        burst_groups = set()
+
         for p in all_photos:
             if p.star_rating is not None and p.star_rating >= 1:
                 starred += 1
@@ -329,11 +336,27 @@ async def get_all_counts():
             else:
                 unprocessed += 1
 
+            if p.is_blur == 1:
+                blur += 1
+            if p.is_duplicate == 1:
+                duplicate += 1
+            if p.is_closed_eye == 1:
+                closed_eye += 1
+            if p.is_best_in_burst == 1:
+                best += 1
+            if p.burst_group is not None and p.burst_group != "":
+                burst_groups.add(p.burst_group)
+
         return {
             "all": all_count,
             "starred": starred,
             "unprocessed": unprocessed,
             "rejected": rejected,
+            "blur": blur,
+            "duplicate": duplicate,
+            "burst": len(burst_groups),
+            "best": best,
+            "closed_eye": closed_eye,
         }
     except Exception as exc:
         logger.error("Failed to query counts: %s", exc)

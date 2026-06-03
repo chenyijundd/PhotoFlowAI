@@ -14,6 +14,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { fetchBurstPhotos, acceptBestInBurst, acceptAllInBurst, rejectAllInBurst } from "../api/photoApi";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
+import { useBurstCompare } from "../context/BurstCompareContext";
 import type { PhotoInfo } from "../../types";
 
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -42,6 +43,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
   const [error, setError] = useState<string | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const { selectPhoto } = usePhotoSelection();
+  const { isBurstCompareMode, enterBurstCompareMode } = useBurstCompare();
 
   // Load burst group photos — extracted so it can be re-called after actions
   const loadPhotos = useCallback(async () => {
@@ -122,6 +124,14 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
     <div className="burst-filmstrip">
       <div className="burst-filmstrip-header">
         连拍组 {burstGroupId} · {photos.length} 张
+        <button
+          className="burst-filmstrip-compare-btn"
+          onClick={() => enterBurstCompareMode(burstGroupId)}
+          title="多图对比 (B)"
+          disabled={isBurstCompareMode}
+        >
+          🔍
+        </button>
       </div>
       <div className="burst-filmstrip-strip" ref={stripRef}>
         {photos.map((photo) => {

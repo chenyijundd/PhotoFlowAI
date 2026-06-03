@@ -2,18 +2,20 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import ImageGrid from "../components/ImageGrid";
 import DetailPanel from "../components/DetailPanel";
 import ComparePage from "../components/ComparePage";
+import BurstCompareGrid from "../components/BurstCompareGrid";
 import LightboxPage from "../components/LightboxPage";
 import StatusOverlay from "../components/StatusOverlay";
 import type { StatusType } from "../components/StatusOverlay";
 import { usePhotos } from "../hooks/usePhotos";
 import { usePhotoSelection } from "../context/PhotoSelectionContext";
 import { useCompareMode } from "../context/CompareModeContext";
+import { useBurstCompare } from "../context/BurstCompareContext";
 import { useLightboxMode } from "../context/LightboxModeContext";
 import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
-import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchBlurCount, fetchDuplicateCount, fetchBurstCount, fetchBestCount, fetchClosedEyeCount, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
+import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
@@ -111,6 +113,12 @@ const BrowserPage: React.FC = () => {
     setDirtyRef: setCompareDirtyRef,
   } = useCompareMode();
 
+  // Burst compare mode
+  const {
+    isBurstCompareMode,
+    enterBurstCompareMode,
+  } = useBurstCompare();
+
   // Lightbox mode
   const {
     isLightboxMode,
@@ -173,10 +181,11 @@ const BrowserPage: React.FC = () => {
     photos,
     selectedIndex,
     columnCount: gridColumnCount,
-    enabled: !isCompareMode && !isLightboxMode,
+    enabled: !isCompareMode && !isLightboxMode && !isBurstCompareMode,
   });
 
-  // Fetch all filter counts in a single batch request
+  // Fetch all filter counts (basic + AI) in a single batch request.
+  // AI category counts come from the same DB scan — no extra HTTP requests.
   const loadCounts = useCallback(async () => {
     try {
       const counts = await fetchCounts();
@@ -184,6 +193,11 @@ const BrowserPage: React.FC = () => {
       setStarredCount(counts.starred);
       setRejectedCount(counts.rejected);
       setUnprocessedCount(counts.unprocessed);
+      setBlurCount(counts.blur);
+      setDupCount(counts.duplicate);
+      setBurstCount(counts.burst);
+      setBestCount(counts.best);
+      setEyeClosedCount(counts.closed_eye);
     } catch {
       // silently ignore
     }
@@ -241,25 +255,7 @@ const BrowserPage: React.FC = () => {
     setAiCategory(null);
   }, [filterMode]);
 
-  /** Fetch AI category counts after analysis completes. */
-  const fetchAICounts = useCallback(async () => {
-    try {
-      const [blur, dup, burst, best, eye] = await Promise.all([
-        fetchBlurCount(),
-        fetchDuplicateCount(),
-        fetchBurstCount(),
-        fetchBestCount(),
-        fetchClosedEyeCount(),
-      ]);
-      setBlurCount(blur.count);
-      setDupCount(dup.count);
-      setBurstCount(burst.count);
-      setBestCount(best.count);
-      setEyeClosedCount(eye.count);
-    } catch {
-      // silently ignore
-    }
-  }, []);
+  // AI category counts are now included in loadCounts() — no separate fetch needed.
 
   /** Pick the next photo after a star/reject action. Always advances forward. */
   const getNextIdAfterAction = useCallback(
@@ -532,7 +528,7 @@ const BrowserPage: React.FC = () => {
     onToggleStar: handleToggleStar,
     onToggleReject: handleToggleReject,
     scrollToIndex,
-    active: !isCompareMode,
+    active: !isCompareMode && !isBurstCompareMode,
     filterMode,
     aiCategory,
     onNavigate,
@@ -546,6 +542,10 @@ const BrowserPage: React.FC = () => {
   enterCompareModeRef.current = enterCompareMode;
   const isCompareModeRef = useRef(isCompareMode);
   isCompareModeRef.current = isCompareMode;
+  const enterBurstCompareModeRef = useRef(enterBurstCompareMode);
+  enterBurstCompareModeRef.current = enterBurstCompareMode;
+  const isBurstCompareModeRef = useRef(isBurstCompareMode);
+  isBurstCompareModeRef.current = isBurstCompareMode;
   const setStatusOverlayRef = useRef(setStatusOverlay);
   setStatusOverlayRef.current = setStatusOverlay;
 
@@ -574,7 +574,35 @@ const BrowserPage: React.FC = () => {
     [],
   );
 
-  useKeyboardHandler("app-compare-trigger", handleCKey, KEY_PRIORITY.APP, !isCompareMode);
+  useKeyboardHandler("app-compare-trigger", handleCKey, KEY_PRIORITY.APP, !isCompareMode && !isBurstCompareMode);
+
+  // 'B' key — enter burst compare mode (same pattern as C key for duplicate compare)
+  const handleBKey = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+
+      if (e.key === "b" || e.key === "B") {
+        const photo = selectedPhotoRef.current;
+        if (photo?.burst_group && !isBurstCompareModeRef.current && !isCompareModeRef.current) {
+          e.preventDefault();
+          enterBurstCompareModeRef.current(photo.burst_group);
+          return true;
+        }
+        // Photo has no burst_group — show hint
+        if (photo && !photo.burst_group && !isBurstCompareModeRef.current && !isCompareModeRef.current) {
+          e.preventDefault();
+          setStatusOverlayRef.current("hint");
+          setTimeout(() => setStatusOverlayRef.current(null), 800);
+          return true;
+        }
+      }
+      return false;
+    },
+    [],
+  );
+
+  useKeyboardHandler("app-burst-compare-trigger", handleBKey, KEY_PRIORITY.APP, !isBurstCompareMode && !isCompareMode);
 
   // 'Enter' key — enter Lightbox mode
   const enterLightboxRef = useRef(enterLightbox);
@@ -592,7 +620,7 @@ const BrowserPage: React.FC = () => {
       if (e.key === "Enter") {
         const p = photosRef.current;
         const idx = p.findIndex((ph) => ph.image_id === selectedPhotoRef.current?.image_id);
-        if (idx >= 0 && !isCompareModeRef.current && !isLightboxModeRef.current) {
+        if (idx >= 0 && !isCompareModeRef.current && !isLightboxModeRef.current && !isBurstCompareModeRef.current) {
           e.preventDefault();
           enterLightboxRef.current(p, idx);
           return true;
@@ -603,7 +631,7 @@ const BrowserPage: React.FC = () => {
     [],
   );
 
-  useKeyboardHandler("enter-lightbox", handleEnterKey, KEY_PRIORITY.GRID, !isCompareMode && !isLightboxMode);
+  useKeyboardHandler("enter-lightbox", handleEnterKey, KEY_PRIORITY.GRID, !isCompareMode && !isLightboxMode && !isBurstCompareMode);
 
   // Ctrl+Z / Ctrl+Y — undo / redo for star and reject operations
   const handleUndoRedoKey = useCallback(
@@ -697,6 +725,20 @@ const BrowserPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLightboxMode]);
 
+  // When exiting burst compare mode, only refresh if modifications happened
+  const prevBurstCompareRef = useRef(isBurstCompareMode);
+  useEffect(() => {
+    if (prevBurstCompareRef.current === true && isBurstCompareMode === false) {
+      if (dirtyRef.current) {
+        refresh();
+        loadCounts();
+        dirtyRef.current = false;
+      }
+    }
+    prevBurstCompareRef.current = isBurstCompareMode;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBurstCompareMode]);
+
   const handleImport = useCallback(async () => {
     if (!window.electronAPI) {
       setImportMsg("导入功能仅限桌面版使用");
@@ -765,7 +807,6 @@ const BrowserPage: React.FC = () => {
         },
         onStepComplete: (_data) => {
           // Refresh counts and grid incrementally
-          fetchAICounts();
           refresh();
           loadCounts();
         },
@@ -783,7 +824,6 @@ const BrowserPage: React.FC = () => {
           setSmartState("done");
           refresh();
           loadCounts();
-          fetchAICounts();
           doneTimerRef.current = setTimeout(() => {
             setSmartState("idle");
             setDetectMsg(null);
@@ -808,7 +848,8 @@ const BrowserPage: React.FC = () => {
       const raw = err instanceof Error ? err.message : "选片失败";
       setDetectMsg(cleanIpcError(raw));
     }
-  }, [refresh, loadCounts, fetchAICounts]);
+  }, [refresh, loadCounts]);
+
 
   // Combined AI analysis handler (incremental: unanalyzed only, unless overridden)
   const handleAnalyzeAll = useCallback(async () => {
@@ -857,7 +898,6 @@ const BrowserPage: React.FC = () => {
         onStepComplete: (_data) => {
           // Show AI category bar as soon as first step completes
           setAiAnalysisDone(true);
-          fetchAICounts();
           refresh();
           loadCounts();
         },
@@ -866,7 +906,6 @@ const BrowserPage: React.FC = () => {
           analyzeTaskIdRef.current = null;
           refresh();
           loadCounts();
-          fetchAICounts();
           if (data.total_analyzed > 0) {
             setSmartState("cull_ready");
             setAiAnalysisDone(true);
@@ -912,7 +951,8 @@ const BrowserPage: React.FC = () => {
       setDetectMsg(cleanIpcError(raw));
       setAiCategory(null);
     }
-  }, [refresh, loadCounts, filterMode, fetchAICounts]);
+  }, [refresh, loadCounts, filterMode]);
+
 
   // Open export dialog
   const handleExport = useCallback(() => {
@@ -970,6 +1010,11 @@ const BrowserPage: React.FC = () => {
       unsubscribe?.();
     };
   }, [handleImport]);
+
+  // ---- Burst Compare Mode takes over the entire page ----
+  if (isBurstCompareMode) {
+    return <BurstCompareGrid />;
+  }
 
   // ---- Compare Mode takes over the entire page ----
   if (isCompareMode) {

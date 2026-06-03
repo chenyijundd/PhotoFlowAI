@@ -10,6 +10,7 @@ import React, { useState, useEffect } from "react";
 import BrowserPage from "./pages/BrowserPage";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
+import { BurstCompareProvider } from "./context/BurstCompareContext";
 import { LightboxModeProvider } from "./context/LightboxModeContext";
 import { UndoRedoProvider } from "./context/UndoRedoContext";
 import { BatchSelectionProvider } from "./context/BatchSelectionContext";
@@ -67,9 +68,11 @@ const App: React.FC = () => {
         <UndoRedoProvider>
         <BatchSelectionProvider>
         <CompareModeProvider>
+        <BurstCompareProvider>
         <LightboxModeProvider>
           <BrowserPage />
         </LightboxModeProvider>
+        </BurstCompareProvider>
       </CompareModeProvider>
         </BatchSelectionProvider>
         </UndoRedoProvider>

@@ -621,6 +621,32 @@ body {
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.burst-filmstrip-compare-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: #7a7a9a;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.burst-filmstrip-compare-btn:hover {
+  color: #e2e2f0;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.burst-filmstrip-compare-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .burst-filmstrip-strip {
@@ -1182,6 +1208,240 @@ body {
   border: 1px solid rgba(255, 165, 0, 0.3);
   white-space: nowrap;
   letter-spacing: 0.5px;
+}
+
+/* ---- Burst Compare Mode (Multi-Photo Grid) ---- */
+
+.burst-compare-page {
+  position: fixed;
+  inset: 0;
+  background: #0a0a1a;
+  display: flex;
+  flex-direction: column;
+  z-index: 900;
+}
+
+/* ---- Burst Compare Header ---- */
+
+.burst-compare-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: #0d0d28;
+  border-bottom: 1px solid #1a1a40;
+  flex-shrink: 0;
+}
+
+.burst-compare-header-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e94560;
+  letter-spacing: 1px;
+}
+
+.burst-compare-header-group {
+  font-size: 11px;
+  color: #7a7a9a;
+  font-family: monospace;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.burst-compare-header-count {
+  font-size: 13px;
+  color: #a0a0c0;
+  font-weight: 600;
+}
+
+.burst-compare-header-mode {
+  font-size: 10px;
+  color: #f0c040;
+  background: rgba(240, 192, 64, 0.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(240, 192, 64, 0.25);
+  white-space: nowrap;
+}
+
+.burst-compare-header-hint {
+  font-size: 11px;
+  color: #5a5a7a;
+  margin-left: auto;
+}
+
+.burst-compare-header-exit {
+  margin-left: 12px;
+  padding: 6px 14px;
+  border: 1px solid #2a2a50;
+  border-radius: 6px;
+  background: transparent;
+  color: #c0c0e0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.burst-compare-header-exit:hover {
+  background: rgba(233, 69, 96, 0.15);
+  border-color: #e94560;
+}
+
+/* ---- Burst Compare Grid Body ---- */
+
+.burst-compare-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--burst-columns, 3), 1fr);
+  grid-auto-rows: minmax(140px, auto);
+  gap: 4px;
+  padding: 4px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+/* ---- Grid Cell ---- */
+
+.burst-grid-cell {
+  position: relative;
+  background: #0d0d1f;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+
+.burst-grid-cell--hovered {
+  border-color: #4a7cff;
+}
+
+.burst-grid-cell--starred {
+  border-color: #f0c040;
+}
+
+.burst-grid-cell--rejected {
+  border-color: #e94560;
+  opacity: 0.55;
+}
+
+.burst-grid-cell--hovered.burst-grid-cell--starred {
+  border-color: #f5d060;
+}
+
+.burst-grid-cell--hovered.burst-grid-cell--rejected {
+  border-color: #f06070;
+}
+
+/* ---- Grid Image Area ---- */
+
+.burst-grid-image-area {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* min-height must NOT be 0 — combined with loading="lazy"+flex the
+     grid rows collapse and images never load (zero-height viewport).
+     120 px keeps 3:2 photos well-proportioned even at 8 columns. */
+  min-height: 120px;
+  background: #060612;
+}
+
+.burst-grid-image-area img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.burst-grid-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d0d1f;
+  z-index: 1;
+}
+
+.burst-grid-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d0d1f;
+  color: #7a7a9a;
+  font-size: 12px;
+  z-index: 1;
+}
+
+/* ---- Grid Info Bar ---- */
+
+.burst-grid-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.burst-grid-filename {
+  font-size: 10px;
+  color: #7a7a9a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.burst-grid-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.burst-grid-star,
+.burst-grid-reject {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.burst-grid-star {
+  color: #5a5a3a;
+}
+
+.burst-grid-star--active {
+  color: #f0c040;
+}
+
+.burst-grid-star:hover {
+  background: rgba(240, 192, 64, 0.15);
+}
+
+.burst-grid-reject {
+  color: #5a3a3a;
+}
+
+.burst-grid-reject--active {
+  color: #e94560;
+}
+
+.burst-grid-reject:hover {
+  background: rgba(233, 69, 96, 0.15);
 }
 
 /* ---- Status Overlay ---- */

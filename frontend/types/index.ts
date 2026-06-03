@@ -88,12 +88,18 @@ export interface BlurCountResponse {
   count: number;
 }
 
-/** Response from GET /api/photos/counts (batch count endpoint). */
+/** Response from GET /api/photos/counts (batch count endpoint — basic + AI). */
 export interface CountsResponse {
   all: number;
   starred: number;
   unprocessed: number;
   rejected: number;
+  /** AI category counts (merged in single DB scan, no extra requests). */
+  blur: number;
+  duplicate: number;
+  burst: number;
+  best: number;
+  closed_eye: number;
 }
 
 /** Response from POST /api/ai/blur-detect (now async — returns task_id). */
