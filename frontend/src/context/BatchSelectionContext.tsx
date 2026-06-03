@@ -120,7 +120,12 @@ export const BatchSelectionProvider: React.FC<{ children: React.ReactNode }> = (
   }, []);
 
   const selectSingle = useCallback((id: string) => {
-    setSelectedIds(new Set([id]));
+    setSelectedIds((prev) => {
+      // If already a single-item selection of the same photo, skip update
+      // to prevent unnecessary re-renders (e.g. react-window Cell remount).
+      if (prev.size === 1 && prev.has(id)) return prev;
+      return new Set([id]);
+    });
     anchorRef.current = id;
   }, []);
 

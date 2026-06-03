@@ -81,6 +81,9 @@ class ImagePreloader {
   // ---- Dedup set (don't enqueue what's already cached or fetching) ----
   private fetching: Set<string> = new Set();
 
+  // ---- Completion listeners (imageId → callbacks to fire when loaded) ----
+  private loadListeners: Map<string, Set<() => void>> = new Map();
+
   // ---- IndexedDB ----
   private db: Promise<IDBDatabase> | null = null;
 
@@ -103,6 +106,41 @@ class ImagePreloader {
    */
   hasFullsize(imageId: string): boolean {
     return this.cache.has(imageId);
+  }
+
+  /**
+   * Check whether a full-size image is currently being fetched.
+   * Used by FullsizePreview to decide whether to stall or fall back to network.
+   */
+  isFetchingFullsize(imageId: string): boolean {
+    return this.fetching.has(imageId);
+  }
+
+  /**
+   * Register a callback that fires when a full-size image finishes loading
+   * (either from an in-flight fetch or a future one). Returns an unsubscribe fn.
+   * If the image is already cached, the callback fires on the next microtask.
+   */
+  onFullsizeLoaded(imageId: string, callback: () => void): () => void {
+    // Already cached — fire ASAP
+    if (this.cache.has(imageId)) {
+      const id = setTimeout(callback, 0);
+      return () => clearTimeout(id);
+    }
+
+    let listeners = this.loadListeners.get(imageId);
+    if (!listeners) {
+      listeners = new Set();
+      this.loadListeners.set(imageId, listeners);
+    }
+    listeners.add(callback);
+
+    return () => {
+      listeners?.delete(callback);
+      if (listeners && listeners.size === 0) {
+        this.loadListeners.delete(imageId);
+      }
+    };
   }
 
   /**
@@ -344,6 +382,7 @@ class ImagePreloader {
       const resp = await fetch(url);
       if (!resp.ok) {
         console.warn(`[ImagePreloader] fullsize fetch failed for ${imageId}: HTTP ${resp.status}`);
+        this.notifyListeners(imageId);
         return;
       }
 
@@ -351,10 +390,24 @@ class ImagePreloader {
       const blobUrl = URL.createObjectURL(blob);
 
       this.insertCache(imageId, { blob, url: blobUrl, size: blob.size });
+      this.notifyListeners(imageId);
     } catch (err) {
       console.warn(`[ImagePreloader] fullsize fetch error for ${imageId}:`, err);
+      this.notifyListeners(imageId);
     } finally {
       this.fetching.delete(imageId);
+    }
+  }
+
+  /**
+   * Fire all registered listeners for an image and clean up.
+   */
+  private notifyListeners(imageId: string): void {
+    const listeners = this.loadListeners.get(imageId);
+    if (!listeners) return;
+    this.loadListeners.delete(imageId);
+    for (const cb of listeners) {
+      try { cb(); } catch { /* swallow */ }
     }
   }
 

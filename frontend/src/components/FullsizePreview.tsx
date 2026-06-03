@@ -13,6 +13,9 @@
  *   - Spinner only appears after a 200 ms delay, so preloaded images
  *     (which decode in < 50 ms) never show a loading state.
  *   - Preloader blob URLs are checked before falling back to the network.
+ *   - When the preloader is still fetching the target image, the src is
+ *     frozen synchronously during render — no "first frame with network URL"
+ *     flash before the useEffect stall kicks in.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
@@ -36,8 +39,7 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
 }) => {
   // `imageReady` tracks whether the CURRENT image has finished loading.
   // It is ONLY used for zoom-centering — NOT for hiding the <img> tag,
-  // which stays visible at all times so the browser can display the old
-  // image during the transition.
+  // which stays visible at all times.
   const [imageReady, setImageReady] = useState(false);
   const [error, setError] = useState(false);
   // Delayed spinner — only shown when decoding takes > 200 ms
@@ -47,12 +49,44 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
   const spinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevImageIdRef = useRef(imageId);
 
-  // Check preloader cache first for zero-latency display.
-  // Falls back to direct backend URL if not yet preloaded.
-  const preloadedUrl = imagePreloader.getFullsizeUrl(imageId);
-  const src = preloadedUrl || `${fullsizeUrl(imageId)}?t=${encodeURIComponent(imageId)}`;
+  // ---- Stall mechanism ----
+  // displaySrcRef is updated SYNCHRONOUSLY during render so the <img>
+  // never receives a network URL while the preloader is working.
+  // A version counter forces re-render when a stalled preload completes.
+  const [version, setVersion] = useState(0);
+  const displaySrcRef = useRef<string>("");
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  // ---- Image change handling (no key={imageId} — smooth transition) ----
+  // Resolve URLs for the current imageId
+  const preloadedUrl = imagePreloader.getFullsizeUrl(imageId);
+  const isFetching = imagePreloader.isFetchingFullsize(imageId);
+  const networkUrl = `${fullsizeUrl(imageId)}?t=${encodeURIComponent(imageId)}`;
+
+  // ---- Render-time src resolution (SYNCHRONOUS — no frame with wrong URL) ----
+  //
+  // Cases:
+  //   1. Cached           → displaySrcRef = blob URL       (instant display)
+  //   2. Fetching in bg   → displaySrcRef UNCHANGED        (stall — old img stays)
+  //   3. Not cached/not fetching → displaySrcRef = network (fresh load, trigger preload in effect)
+  //
+  // Caveat: on the very first render displaySrcRef is "". Stalling with an
+  // empty string would cause <img src=""> which the browser resolves to the
+  // page base URL — producing a spurious onError.  Fall back to network when
+  // there is no old image to keep.
+
+  if (preloadedUrl) {
+    // Case 1: blob URL ready — use it immediately
+    displaySrcRef.current = preloadedUrl;
+  } else if (!isFetching || !displaySrcRef.current) {
+    // Case 3: no preload in progress, OR initial mount (no old image to stall)
+    displaySrcRef.current = networkUrl;
+  }
+  // else: isFetching && !preloadedUrl && displaySrcRef.current is set → stall
+
+  const displaySrc = displaySrcRef.current;
+
+  // ---- Image change handling ----
 
   useEffect(() => {
     // Clear any pending spinner timer from the previous image
@@ -69,30 +103,72 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
     setError(false);
     setShowSpinner(false);
 
-    // Check if the browser already has this image decoded (HTTP cache hit).
-    // When src has already been updated by React, the browser may have the
-    // new image cached.  img.complete is true if the browser didn't need to
-    // start a new load.
-    const img = imgRef.current;
-    if (img && img.complete && img.naturalWidth > 0) {
-      // Already decoded — no spinner needed, image is ready immediately
-      setImageReady(true);
+    // Clean up any previous stall subscription / timer
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+
+    // Case 1: Already cached — the render already set displaySrcRef.
+    // Just manage spinner / imageReady.
+    if (preloadedUrl) {
+      const img = imgRef.current;
+      if (img && img.complete && img.naturalWidth > 0) {
+        setImageReady(true);
+        return;
+      }
+      setImageReady(false);
+      spinnerTimerRef.current = setTimeout(() => setShowSpinner(true), 200);
       return;
     }
 
-    // New image is loading — keep the old image visible (browser handles
-    // this natively when <img> stays mounted).  Only show a spinner if
-    // loading takes longer than 200 ms.
-    setImageReady(false);
-    spinnerTimerRef.current = setTimeout(() => {
-      setShowSpinner(true);
-    }, 200);
-  }, [imageId]);
+    // Case 2: Preloader is fetching — the render already stalled displaySrcRef.
+    // Subscribe so we can re-render (and un-stall) when the blob arrives.
+    if (isFetching) {
+      setImageReady(false);
 
-  // Cleanup timer on unmount
+      unsubscribeRef.current = imagePreloader.onFullsizeLoaded(imageId, () => {
+        // Preload finished — force re-render to pick up the blob URL
+        setVersion((v) => v + 1);
+      });
+
+      // Safety timeout: if preload takes > 4 s, force fallback to network
+      stallTimerRef.current = setTimeout(() => {
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
+        // Force displaySrcRef to network URL and re-render
+        displaySrcRef.current = networkUrl;
+        setVersion((v) => v + 1);
+      }, 4000);
+
+      return;
+    }
+
+    // Case 3: Not cached and not fetching — render already used networkUrl.
+    // Trigger a preload so NEXT time is instant.
+    imagePreloader.preloadFullsizeBg(imageId, "high");
+
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setImageReady(true);
+      return;
+    }
+    setImageReady(false);
+    spinnerTimerRef.current = setTimeout(() => setShowSpinner(true), 200);
+  }, [imageId, preloadedUrl, isFetching, networkUrl]);
+
+  // Cleanup timers and subscriptions on unmount
   useEffect(() => {
     return () => {
       if (spinnerTimerRef.current) clearTimeout(spinnerTimerRef.current);
+      if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+      if (unsubscribeRef.current) unsubscribeRef.current();
     };
   }, []);
 
@@ -146,6 +222,10 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
       ? "fullsize-preview fullsize-preview--zoom100"
       : "fullsize-preview fullsize-preview--fit";
 
+  // Only update displaySrc when it actually changed, to avoid
+  // React re-applying the same src to the DOM.
+  // displaySrc is stable during stall (same as previous render).
+
   return (
     <div className={containerClass} ref={containerRef}>
       {/* Spinner overlay — only appears after 200 ms delay.
@@ -163,10 +243,14 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
       )}
       {/* No key={imageId}: the <img> stays mounted across photo changes.
           The browser keeps displaying the old decoded image while the new
-          one loads, providing a flicker-free transition. */}
+          one loads, providing a flicker-free transition.
+
+          displaySrc is frozen to the OLD URL during stall — React passes
+          the same src string, the DOM sees no change, and the old image
+          stays visible until the preload completes. */}
       <img
         ref={imgRef}
-        src={src}
+        src={displaySrc}
         alt={fileName}
         loading="eager"
         onLoad={handleLoad}

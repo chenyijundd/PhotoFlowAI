@@ -67,6 +67,11 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
 
     const handleClick = useCallback(
       (e: React.MouseEvent) => {
+        // Trigger full-size preload BEFORE updating selection so that
+        // by the time FullsizePreview re-renders the image is either
+        // already being fetched (→ stall) or cached (→ instant display).
+        imagePreloader.preloadFullsizeBg(photo.image_id, "high");
+
         if (e.ctrlKey || e.metaKey) {
           // Ctrl+Click → toggle this photo in batch selection
           e.preventDefault();
@@ -81,8 +86,14 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
           rangeSelectTo(photo.image_id, getVisibleOrderedIds());
           selectPhoto(photo.image_id);
         } else {
-          // Regular click → single select + show detail
-          selectSingle(photo.image_id);
+          // Regular click → show photo detail.
+          // Only clear batch selection when it is active; skipping
+          // selectSingle when selectionCount === 0 prevents a
+          // BatchSelectionContext update that would invalidate
+          // ImageGrid.Cell useMemo and remount every visible thumbnail.
+          if (selectionCount > 0) {
+            selectSingle(photo.image_id);
+          }
           selectPhoto(photo.image_id);
         }
       },
