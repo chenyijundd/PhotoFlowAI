@@ -23,6 +23,14 @@ import type { HistoryEntry } from "../context/UndoRedoContext";
 import { useBatchSelection } from "../context/BatchSelectionContext";
 import type { ExportMode } from "../../types";
 
+/** Strip Electron IPC wrapper prefix from error messages.
+ *  Electron wraps remote method errors as:
+ *    "Error invoking remote method '<channel>': <actual message>"
+ *  Only the actual message is meaningful to the user. */
+function cleanIpcError(raw: string): string {
+  return raw.replace(/^Error invoking remote method '[^']*':\s*/, "");
+}
+
 const BrowserPage: React.FC = () => {
   const [filterMode, setFilterMode] = useState<PhotoFilterMode>("all");
   const [starredCount, setStarredCount] = useState(0);
@@ -789,13 +797,14 @@ const BrowserPage: React.FC = () => {
         onTaskError: (error) => {
           detectStreamRef.current = null;
           analyzeTaskIdRef.current = null;
-          setDetectMsg(error);
+          setDetectMsg(cleanIpcError(error));
           setSmartState("cull_ready");
         },
       });
     } catch (err: unknown) {
       setSmartState("cull_ready");
-      setDetectMsg(err instanceof Error ? err.message : "选片失败");
+      const raw = err instanceof Error ? err.message : "选片失败";
+      setDetectMsg(cleanIpcError(raw));
     }
   }, [refresh, loadCounts, fetchAICounts]);
 
@@ -855,22 +864,30 @@ const BrowserPage: React.FC = () => {
           analyzeTaskIdRef.current = null;
           refresh();
           loadCounts();
-          setSmartState("cull_ready");
-          setAiAnalysisDone(true);
-          setDetectMsg("AI 分析完成，点击 ⚡ 一键选片 应用推荐");
           fetchAICounts();
-          // Fetch summary & show analysis result modal
-          (async () => {
-            try {
-              const s = await fetchAISummary();
-              if (s.total_analyzed > 0) {
-                setAiSummary(s);
-                setShowSummary(true);
+          if (data.total_analyzed > 0) {
+            setSmartState("cull_ready");
+            setAiAnalysisDone(true);
+            setDetectMsg("AI 分析完成，点击 ⚡ 一键选片 应用推荐");
+            // Fetch summary & show analysis result modal
+            (async () => {
+              try {
+                const s = await fetchAISummary();
+                if (s.total_analyzed > 0) {
+                  setAiSummary(s);
+                  setShowSummary(true);
+                }
+              } catch {
+                // Summary fetch failed — modal won't show, analysis bar is still visible
               }
-            } catch {
-              // Summary fetch failed — modal won't show, analysis bar is still visible
-            }
-          })();
+            })();
+          } else {
+            // No photos were actually analysed (e.g. all already analysed,
+            // or no eligible photos). Stay idle — don't offer cull.
+            setSmartState("idle");
+            setAiCategory(null);
+            setDetectMsg("没有需要分析的新照片");
+          }
         },
         onTaskCancelled: () => {
           detectStreamRef.current = null;
@@ -883,13 +900,14 @@ const BrowserPage: React.FC = () => {
           detectStreamRef.current = null;
           analyzeTaskIdRef.current = null;
           setSmartState("idle");
-          setDetectMsg(error);
+          setDetectMsg(cleanIpcError(error));
           setAiCategory(null);
         },
       });
     } catch (err: unknown) {
       setSmartState("idle");
-      setDetectMsg(err instanceof Error ? err.message : "AI 分析失败");
+      const raw = err instanceof Error ? err.message : "AI 分析失败";
+      setDetectMsg(cleanIpcError(raw));
       setAiCategory(null);
     }
   }, [refresh, loadCounts, filterMode, fetchAICounts]);
