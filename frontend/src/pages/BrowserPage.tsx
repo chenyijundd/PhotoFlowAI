@@ -15,7 +15,7 @@ import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
-import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchBlurCount, fetchDuplicateCount, fetchBurstCount, fetchBestCount, fetchClosedEyeCount, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
+import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
 import type { ImportResponse, PhotoFilterMode, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
@@ -184,7 +184,8 @@ const BrowserPage: React.FC = () => {
     enabled: !isCompareMode && !isLightboxMode && !isBurstCompareMode,
   });
 
-  // Fetch all filter counts in a single batch request
+  // Fetch all filter counts (basic + AI category) in a single request.
+  // Replaces 6 HTTP calls (1 basic + 5 AI category) with 1.
   const loadCounts = useCallback(async () => {
     try {
       const counts = await fetchCounts();
@@ -192,6 +193,11 @@ const BrowserPage: React.FC = () => {
       setStarredCount(counts.starred);
       setRejectedCount(counts.rejected);
       setUnprocessedCount(counts.unprocessed);
+      setBlurCount(counts.blur_count);
+      setEyeClosedCount(counts.closed_eye_count);
+      setDupCount(counts.duplicate_count);
+      setBurstCount(counts.burst_group_count);
+      setBestCount(counts.best_count);
     } catch {
       // silently ignore
     }
@@ -218,52 +224,46 @@ const BrowserPage: React.FC = () => {
   }, [setOnChanged, refresh, loadCounts]);
 
   // On mount, detect if AI analysis was previously completed (across sessions).
-  // If the backend already has blur/duplicate/burst/best results, show the bar.
+  // Uses the merged /api/photos/counts to get all counts in one request.
   useEffect(() => {
     (async () => {
       try {
-        const [blur, dup, burst, best, eye] = await Promise.all([
-          fetchBlurCount(),
-          fetchDuplicateCount(),
-          fetchBurstCount(),
-          fetchBestCount(),
-          fetchClosedEyeCount(),
-        ]);
-        const hasAIResults = blur.count > 0 || dup.count > 0 || burst.count > 0 || best.count > 0 || eye.count > 0;
+        const counts = await fetchCounts();
+        const hasAIResults =
+          counts.blur_count > 0 ||
+          counts.closed_eye_count > 0 ||
+          counts.duplicate_count > 0 ||
+          counts.burst_group_count > 0 ||
+          counts.best_count > 0;
         if (hasAIResults) {
           setAiAnalysisDone(true);
         }
-        setBlurCount(blur.count);
-        setDupCount(dup.count);
-        setBurstCount(burst.count);
-        setBestCount(best.count);
-        setEyeClosedCount(eye.count);
+        setBlurCount(counts.blur_count);
+        setDupCount(counts.duplicate_count);
+        setBurstCount(counts.burst_group_count);
+        setBestCount(counts.best_count);
+        setEyeClosedCount(counts.closed_eye_count);
       } catch {
         // Backend not ready or no AI results — bar stays hidden, which is correct
       }
     })();
   }, []);
 
+
   // Clear AI category filter when user switches the main filter tab
   useEffect(() => {
     setAiCategory(null);
   }, [filterMode]);
 
-  /** Fetch AI category counts after analysis completes. */
+  /** Fetch AI category counts after analysis or cull step completes. */
   const fetchAICounts = useCallback(async () => {
     try {
-      const [blur, dup, burst, best, eye] = await Promise.all([
-        fetchBlurCount(),
-        fetchDuplicateCount(),
-        fetchBurstCount(),
-        fetchBestCount(),
-        fetchClosedEyeCount(),
-      ]);
-      setBlurCount(blur.count);
-      setDupCount(dup.count);
-      setBurstCount(burst.count);
-      setBestCount(best.count);
-      setEyeClosedCount(eye.count);
+      const counts = await fetchCounts();
+      setBlurCount(counts.blur_count);
+      setDupCount(counts.duplicate_count);
+      setBurstCount(counts.burst_group_count);
+      setBestCount(counts.best_count);
+      setEyeClosedCount(counts.closed_eye_count);
     } catch {
       // silently ignore
     }

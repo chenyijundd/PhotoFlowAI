@@ -309,9 +309,11 @@ async def get_starred_count():
 
 @router.get("/photos/counts")
 async def get_all_counts():
-    """Return all filter counts in a single request.
+    """Return all filter counts in a single request — basic + AI category.
 
-    Used by the frontend filter bar to avoid N+1 HTTP round trips.
+    Single-pass DB scan over all photos avoids N+1 HTTP round trips
+    and N+1 SQLite queries.  The frontend filter bar receives all 12
+    counts in one response.
     """
     try:
         repo = PhotoRepository()
@@ -321,7 +323,15 @@ async def get_all_counts():
         starred = 0
         rejected = 0
         unprocessed = 0
+        blur_count = 0
+        closed_eye_count = 0
+        duplicate_count = 0
+        best_count = 0
+        burst_groups: set[str] = set()
+        burst_photo_count = 0
+
         for p in all_photos:
+            # ---- Basic status ----
             if p.star_rating is not None and p.star_rating >= 1:
                 starred += 1
             elif p.is_rejected == 1:
@@ -329,11 +339,46 @@ async def get_all_counts():
             else:
                 unprocessed += 1
 
+            # ---- AI category counts ----
+            if p.is_blur == 1:
+                blur_count += 1
+            if p.is_closed_eye == 1:
+                closed_eye_count += 1
+            if p.is_duplicate == 1:
+                duplicate_count += 1
+            if p.is_best_in_burst == 1 or p.is_best_in_duplicate == 1:
+                best_count += 1
+            if p.burst_group is not None:
+                burst_groups.add(p.burst_group)
+                burst_photo_count += 1
+
+        # Clean = total - (photos with any AI issue or in any group)
+        clean_count = all_count - (
+            blur_count + closed_eye_count + duplicate_count
+            + burst_photo_count
+        )
+        # Compensate double-counting: a photo can have multiple flags.
+        # We count photos that have at least one issue/belonging.
+        flagged_ids: set[str] = set()
+        for p in all_photos:
+            if p.is_blur == 1 or p.is_closed_eye == 1 or p.is_duplicate == 1:
+                flagged_ids.add(p.image_id)
+            if p.burst_group is not None:
+                flagged_ids.add(p.image_id)
+        clean_count = all_count - len(flagged_ids)
+
         return {
             "all": all_count,
             "starred": starred,
             "unprocessed": unprocessed,
             "rejected": rejected,
+            "blur_count": blur_count,
+            "closed_eye_count": closed_eye_count,
+            "duplicate_count": duplicate_count,
+            "burst_group_count": len(burst_groups),
+            "burst_photo_count": burst_photo_count,
+            "best_count": best_count,
+            "clean_count": clean_count,
         }
     except Exception as exc:
         logger.error("Failed to query counts: %s", exc)

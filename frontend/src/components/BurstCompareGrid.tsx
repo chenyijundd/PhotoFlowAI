@@ -91,7 +91,7 @@ function gridImageSrc(photo: PhotoInfo, useThumbnail: boolean): string {
   }
   // Full-size path — use blob URL from preloader if available
   const preloaded = imagePreloader.getFullsizeUrl(photo.image_id);
-  return preloaded || fullsizeUrl(photo.image_id);
+  return preloaded || fullsizeUrl(photo.image_id, 1600);
 }
 
 // ---------------------------------------------------------------------------

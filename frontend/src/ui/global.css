@@ -1321,12 +1321,12 @@ body {
 }
 
 .burst-grid-cell--starred {
-  border-color: #f0c040;
+  /* 不加金色边框 — 避免干扰摄影师客观判断，底部 ☆/★ 按钮已表明状态 */
 }
 
 .burst-grid-cell--rejected {
   border-color: #e94560;
-  opacity: 0.55;
+  /* 不降低透明度 — 摄影师需要客观对比照片，不应对图像做任何修饰 */
 }
 
 .burst-grid-cell--hovered.burst-grid-cell--starred {

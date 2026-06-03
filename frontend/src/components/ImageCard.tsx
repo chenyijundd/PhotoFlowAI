@@ -146,12 +146,11 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(
                    problem is shown per photo (closed_eye > blur > burst > dup > best).
                    REJECT is a user action, shown independently. */}
               {/* Badge priority: defect(L1/L2) > best > group */}
+              {/* 不展示 AI "最佳" 标签 — 摄影师应自主判断，AI 推荐不应干扰挑选 */}
               {photo.is_closed_eye === 1 ? (
                 <div className="photo-card-eye-badge">闭眼</div>
               ) : photo.is_blur === 1 ? (
                 <div className="photo-card-blur-badge">模糊</div>
-              ) : (photo.is_best_in_burst === 1 || photo.is_best_in_duplicate === 1) ? (
-                <div className="photo-card-best-badge">最佳</div>
               ) : photo.burst_group ? (
                 <div className="photo-card-burst-badge">连拍</div>
               ) : photo.is_duplicate === 1 ? (

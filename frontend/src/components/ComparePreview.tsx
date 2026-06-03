@@ -39,7 +39,7 @@ const ComparePreview: React.FC<ComparePreviewProps> = ({ photo, isActive }) => {
   // Check preloader cache first for zero-latency display
   const preloadedUrl = imagePreloader.getFullsizeUrl(photo.image_id);
   const isFetching = imagePreloader.isFetchingFullsize(photo.image_id);
-  const networkUrl = fullsizeUrl(photo.image_id);
+  const networkUrl = fullsizeUrl(photo.image_id, 1600);
 
   // ---- Render-time src resolution (synchronous — no flash frame) ----
   // Falls back to network URL on initial mount (!displaySrcRef.current)

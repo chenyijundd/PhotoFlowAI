@@ -61,7 +61,7 @@ const FullsizePreview: React.FC<FullsizePreviewProps> = ({
   // Resolve URLs for the current imageId
   const preloadedUrl = imagePreloader.getFullsizeUrl(imageId);
   const isFetching = imagePreloader.isFetchingFullsize(imageId);
-  const networkUrl = `${fullsizeUrl(imageId)}?t=${encodeURIComponent(imageId)}`;
+  const networkUrl = fullsizeUrl(imageId, 1600);
 
   // ---- Render-time src resolution (SYNCHRONOUS — no frame with wrong URL) ----
   //

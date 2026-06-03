@@ -145,14 +145,6 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
             </span>
           </div>
         )}
-        {detail?.burst_group && detail?.is_best_in_burst !== undefined && (
-          <div className="detail-field">
-            <span className="detail-label">推荐照片</span>
-            <span className="detail-value" style={{ color: detail.is_best_in_burst === 1 ? "#ffd700" : "#7a7a9a" }}>
-              {detail.is_best_in_burst === 1 ? "✓ 是（最佳推荐）" : "✗ 否"}
-            </span>
-          </div>
-        )}
         {detail?.blur_score != null && (
           <div className="detail-field">
             <span className="detail-label">模糊检测</span>

@@ -122,20 +122,20 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
    * After a star or reject action, check if we should advance the pair
    * or auto-exit. Receives the fully-updated photos array (already
    * reflecting the star/reject change).
+   *
+   * @param action  "star" or "reject" — only reject actions trigger the
+   *                auto-exit when fewer than 2 non-rejected photos remain.
    */
   const advanceAfterAction = useCallback(
-    (photos: PhotoInfo[], currentIdx: number) => {
-      // Validate current state — active photo may have been removed
-      const validPhotos = photos.filter((p) => p && p.image_id);
-      if (validPhotos.length === 0) {
-        exitCompareMode();
+    (photos: PhotoInfo[], currentIdx: number, action: "star" | "reject" = "star") => {
+      // Guard: stale state — handler registered before groupPhotos loaded
+      if (!photos || photos.length === 0) {
         return;
       }
 
-      // Count non-rejected photos
-      const nonRejected = validPhotos.filter((p) => (p.is_rejected ?? 0) === 0);
-      if (nonRejected.length < 2) {
-        exitCompareMode();
+      // Validate current state — active photo may have been removed
+      const validPhotos = photos.filter((p) => p && p.image_id);
+      if (validPhotos.length === 0) {
         return;
       }
 
@@ -164,8 +164,10 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
         }
       }
 
-      // No valid pair found — auto exit
-      exitCompareMode();
+      // No valid pair of all-non-rejected photos found.
+      // Stay put — the photographer controls when to exit (via ESC).
+      // This avoids disrupting the review workflow when the last
+      // non-rejected photo still deserves a look.
     },
     [setPair, exitCompareMode],
   );
@@ -234,6 +236,8 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const toggleStarActive = useCallback(async () => {
     if (actionInFlightRef.current) return;
+    // Guard: stale state — compare mode just mounted, photos not yet loaded
+    if (groupPhotos.length === 0) return;
     actionInFlightRef.current = true;
 
     try {
@@ -246,18 +250,25 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         await updateStarRating(target.image_id, newRating);
 
+        // Mutual exclusivity: starring clears reject
+        let newReject = target.is_rejected ?? 0;
+        if (newRating >= 1 && newReject >= 1) {
+          newReject = 0;
+          await updateRejectStatus(target.image_id, 0);
+        }
+
         // Compute the updated photos array for advance logic
         const updatedPhotos = groupPhotos.map((p) =>
-          p.image_id === target.image_id ? { ...p, star_rating: newRating } : p,
+          p.image_id === target.image_id ? { ...p, star_rating: newRating, is_rejected: newReject } : p,
         );
 
-        updatePhotoInState(target.image_id, { star_rating: newRating });
+        updatePhotoInState(target.image_id, { star_rating: newRating, is_rejected: newReject });
         markDirty();
         onStatus("star");
 
         // Auto-advance when starring (not un-starring)
         if (newRating >= 1) {
-          advanceAfterAction(updatedPhotos, currentIndex);
+          advanceAfterAction(updatedPhotos, currentIndex, "star");
         }
       } catch {
         // silently fail — but still release the guard
@@ -265,10 +276,12 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } finally {
       actionInFlightRef.current = false;
     }
-  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus]);
+  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus, updateRejectStatus]);
 
   const toggleRejectActive = useCallback(async () => {
     if (actionInFlightRef.current) return;
+    // Guard: stale state — compare mode just mounted, photos not yet loaded
+    if (groupPhotos.length === 0) return;
     actionInFlightRef.current = true;
 
     try {
@@ -281,18 +294,25 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         await updateRejectStatus(target.image_id, newReject);
 
+        // Mutual exclusivity: rejecting clears star
+        let newRating = target.star_rating ?? 0;
+        if (newReject >= 1 && newRating >= 1) {
+          newRating = 0;
+          await updateStarRating(target.image_id, 0);
+        }
+
         // Compute the updated photos array for advance logic
         const updatedPhotos = groupPhotos.map((p) =>
-          p.image_id === target.image_id ? { ...p, is_rejected: newReject } : p,
+          p.image_id === target.image_id ? { ...p, star_rating: newRating, is_rejected: newReject } : p,
         );
 
-        updatePhotoInState(target.image_id, { is_rejected: newReject });
+        updatePhotoInState(target.image_id, { star_rating: newRating, is_rejected: newReject });
         markDirty();
         onStatus("reject");
 
         // Auto-advance when rejecting (not un-rejecting)
         if (newReject >= 1) {
-          advanceAfterAction(updatedPhotos, currentIndex);
+          advanceAfterAction(updatedPhotos, currentIndex, "reject");
         }
       } catch {
         // silently fail — but still release the guard
@@ -300,8 +320,7 @@ export const CompareModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } finally {
       actionInFlightRef.current = false;
     }
-  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus]);
-
+  }, [activeSide, leftPhoto, rightPhoto, groupPhotos, currentIndex, updatePhotoInState, advanceAfterAction, onStatus, updateStarRating]);
   const totalInGroup = groupPhotos.length;
 
   return (

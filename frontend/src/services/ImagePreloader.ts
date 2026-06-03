@@ -377,7 +377,7 @@ class ImagePreloader {
   }
 
   private async fetchFullsize(imageId: string): Promise<void> {
-    const url = `${this.backendUrl}/api/fullsize/${encodeURIComponent(imageId)}`;
+    const url = `${this.backendUrl}/api/fullsize/${encodeURIComponent(imageId)}?width=1600`;
     try {
       const resp = await fetch(url);
       if (!resp.ok) {

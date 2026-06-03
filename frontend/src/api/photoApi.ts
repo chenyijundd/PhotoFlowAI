@@ -11,9 +11,16 @@ import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCount
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
 
-/** Build the URL for a full-size original image by image_id. */
-export function fullsizeUrl(imageId: string): string {
-  return `${BACKEND_URL}/api/fullsize/${encodeURIComponent(imageId)}`;
+/** Build the URL for a full-size image by image_id.
+ *  When `width` is provided, the backend resizes on-the-fly (≈200 KB
+ *  instead of 10 MB for a typical 24 MP JPEG).  Omit `width` for the
+ *  full original (e.g. export). */
+export function fullsizeUrl(imageId: string, width?: number): string {
+  const base = `${BACKEND_URL}/api/fullsize/${encodeURIComponent(imageId)}`;
+  if (width && width > 0) {
+    return `${base}?width=${width}`;
+  }
+  return base;
 }
 
 /** Fetch paginated photos from the backend. */

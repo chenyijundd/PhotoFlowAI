@@ -1,7 +1,7 @@
 """
 Tests for the Duplicate Detection module.
 
-Tests phash computation, detector, and service orchestration.
+Tests phash computation, dHash integer computation, SSIM, and service orchestration.
 """
 
 import os
@@ -13,9 +13,19 @@ from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from backend.ai.duplicate_detector.detector import compute_phash, hamming_distance
+from backend.ai.duplicate_detector.detector import (
+    compute_phash,
+    compute_dhash_int,
+    compute_ssim,
+    hamming_distance,
+    hamming_distance_int,
+)
 from backend.ai.duplicate_detector.service import (
-    UnionFind, DUPLICATE_THRESHOLD, start_duplicate_detection,
+    UnionFind,
+    DUPLICATE_THRESHOLD,
+    HAMMING_PREFILTER,
+    SSIM_THRESHOLD,
+    start_duplicate_detection,
 )
 
 
@@ -42,6 +52,79 @@ class TestHammingDistance(unittest.TestCase):
         h1 = ImageHash(np.zeros((8, 8), dtype=bool))
         h2 = ImageHash(np.ones((8, 8), dtype=bool))
         self.assertGreater(hamming_distance(h1, h2), 0)
+
+
+class TestHammingDistanceInt(unittest.TestCase):
+    """Tests for integer Hamming distance (POPCNT-based)."""
+
+    def test_same_int_zero_distance(self):
+        self.assertEqual(hamming_distance_int(0xABCD, 0xABCD), 0)
+        self.assertEqual(hamming_distance_int(0, 0), 0)
+
+    def test_different_ints(self):
+        self.assertEqual(hamming_distance_int(0b0000, 0b1111), 4)
+        self.assertEqual(hamming_distance_int(0xFFFF, 0x0000), 16)
+
+    def test_single_bit_difference(self):
+        self.assertEqual(hamming_distance_int(0b0001, 0b0000), 1)
+        self.assertEqual(hamming_distance_int(0b1000, 0b0000), 1)
+
+
+class TestSSIM(unittest.TestCase):
+    """Tests for SSIM computation (final duplicate verification)."""
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_identical_images_ssim_near_one(self):
+        """Identical images should have SSIM ≈ 1.0."""
+        img1 = os.path.join(self.tmp_dir, "a.jpg")
+        img2 = os.path.join(self.tmp_dir, "b.jpg")
+        create_test_image(img1, (100, 149, 237))
+        create_test_image(img2, (100, 149, 237))
+        score = compute_ssim(img1, img2)
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0.99)  # Identical solid-color images
+
+    def test_different_images_lower_ssim(self):
+        """Visually different images should have lower SSIM."""
+        img1 = os.path.join(self.tmp_dir, "red.jpg")
+        img2 = os.path.join(self.tmp_dir, "blue.jpg")
+        create_test_image(img1, (255, 0, 0))
+        create_test_image(img2, (0, 0, 255))
+        score = compute_ssim(img1, img2)
+        self.assertLess(score, 0.99)  # Should be well below identical
+
+    def test_ssim_result_range(self):
+        """SSIM score must be in [0.0, 1.0]."""
+        img1 = os.path.join(self.tmp_dir, "x.jpg")
+        img2 = os.path.join(self.tmp_dir, "y.jpg")
+        create_test_image(img1, (128, 128, 128))
+        create_test_image(img2, (200, 200, 200))
+        score = compute_ssim(img1, img2)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+
+    def test_ssim_missing_file_returns_zero(self):
+        """Missing file should return 0.0, not raise."""
+        score = compute_ssim(
+            os.path.join(self.tmp_dir, "nope.jpg"),
+            os.path.join(self.tmp_dir, "also_nope.jpg"),
+        )
+        self.assertEqual(score, 0.0)
+
+    def test_ssim_unicode_path(self):
+        """SSIM should work with Unicode file paths on Windows."""
+        path1 = os.path.join(self.tmp_dir, "测试_A.jpg")
+        path2 = os.path.join(self.tmp_dir, "测试_B.jpg")
+        create_test_image(path1, (100, 200, 100))
+        create_test_image(path2, (100, 200, 100))
+        score = compute_ssim(path1, path2)
+        self.assertGreaterEqual(score, 0.99)
 
 
 class TestDuplicateDetector(unittest.TestCase):
@@ -91,7 +174,6 @@ class TestDuplicateDetector(unittest.TestCase):
         h1 = compute_phash(img1)
         h2 = compute_phash(img2)
         dist = hamming_distance(h1, h2)
-        # Different solid colors should have larger distance
         self.assertGreaterEqual(dist, 0)
 
     def test_unicode_path(self):
@@ -101,6 +183,14 @@ class TestDuplicateDetector(unittest.TestCase):
         h = compute_phash(path)
         self.assertIsNotNone(h)
         self.assertEqual(len(str(h)), 16)
+
+    def test_compute_dhash_int(self):
+        """dHash integer should be 64-bit (value ≥ 0, fits in 64 bits)."""
+        path = create_test_image(os.path.join(self.tmp_dir, "dhash_test.jpg"))
+        dh = compute_dhash_int(path)
+        self.assertIsInstance(dh, int)
+        self.assertGreaterEqual(dh, 0)
+        self.assertLess(dh, 1 << 64)
 
 
 class TestUnionFind(unittest.TestCase):
@@ -141,6 +231,18 @@ class TestDuplicateDetectorService(unittest.TestCase):
 
     def test_threshold_constant(self):
         self.assertEqual(DUPLICATE_THRESHOLD, 5)
+
+    def test_ssim_threshold_constant(self):
+        """SSIM threshold should be a reasonable value."""
+        self.assertIsInstance(SSIM_THRESHOLD, float)
+        self.assertGreater(SSIM_THRESHOLD, 0.5)
+        self.assertLess(SSIM_THRESHOLD, 1.0)
+
+    def test_hamming_prefilter_constant(self):
+        """Hamming pre-filter should be looser than the strict threshold."""
+        self.assertIsInstance(HAMMING_PREFILTER, int)
+        self.assertGreater(HAMMING_PREFILTER, DUPLICATE_THRESHOLD)
+        self.assertLessEqual(HAMMING_PREFILTER, 64)
 
 
 if __name__ == "__main__":

@@ -200,12 +200,16 @@ async def batch_update(body: BatchUpdateRequest):
 
 
 @router.get("/fullsize/{image_id}")
-async def get_fullsize_image(image_id: str):
+async def get_fullsize_image(image_id: str, width: int | None = None):
     """Serve the full-size image file identified by image_id.
 
-    For formats that browsers can display (JPEG, PNG), the file is
-    served directly.  For HEIC and other conversion-required formats,
-    the image is transcoded to JPEG on-the-fly.
+    When ``width`` is provided, the image is resized on-the-fly via Pillow
+    and returned as JPEG (quality 85).  This cuts typical transfer size from
+    ~10 MB down to ~200 KB for preview panels that only need 800–1600 px.
+
+    For formats that browsers can display (JPEG, PNG, WebP), the file is
+    served directly when no resizing is requested.  For HEIC and other
+    conversion-required formats, the image is transcoded to JPEG on-the-fly.
     """
     try:
         repo = PhotoRepository()
@@ -221,6 +225,59 @@ async def get_fullsize_image(image_id: str):
     if not os.path.isfile(readable):
         logger.warning("Readable file not found on disk: %s (raw: %s)", readable, p.file_path)
         raise HTTPException(status_code=404, detail="Image file not found on disk")
+
+    # ── Resize path ────────────────────────────────────────────────
+    if width is not None and width > 0:
+        try:
+            from PIL import Image, UnidentifiedImageError
+
+            logger.info(
+                "[FULLSIZE] Resize requested: %s → %dpx wide (orig %s)",
+                image_id, width, readable,
+            )
+            with Image.open(readable) as img:
+                # Auto-orient based on EXIF
+                try:
+                    from PIL import ImageOps
+                    img = ImageOps.exif_transpose(img)
+                except Exception:
+                    pass
+
+                if img.mode in ("RGBA", "P", "LA"):
+                    img = img.convert("RGB")
+                elif img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+
+                # Compute new height maintaining aspect ratio
+                orig_w, orig_h = img.size
+                if orig_w > width:
+                    new_h = int(orig_h * (width / orig_w))
+                    img = img.resize((width, new_h), Image.LANCZOS)
+
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85, optimize=True)
+                data = buf.getvalue()
+
+            logger.info(
+                "[FULLSIZE] Resized %s: %d×%d → %d×%d (%d KB → %d KB JPEG)",
+                image_id, orig_w, orig_h, width, new_h,
+                p.file_size // 1024 if p.file_size else 0, len(data) // 1024,
+            )
+            return Response(
+                content=data,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Content-Length": str(len(data)),
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        except UnidentifiedImageError:
+            logger.error("[FULLSIZE] Cannot identify image format for %s", image_id)
+            raise HTTPException(status_code=415, detail="Unsupported image format")
+        except Exception as exc:
+            logger.error("[FULLSIZE] Resize failed for %s: %s", image_id, exc)
+            # Fall through to direct serve as a fallback
 
     # Formats the browser can display natively — serve directly
     ext = os.path.splitext(readable)[1].lower()

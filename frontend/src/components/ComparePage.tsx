@@ -97,8 +97,8 @@ const ComparePage: React.FC = () => {
     const p1 = groupPhotos[nextIdx];
     const p2 = nextIdx + 1 < groupPhotos.length ? groupPhotos[nextIdx + 1] : null;
 
-    if (p1) imgs.push(preloadImage(fullsizeUrl(p1.image_id)));
-    if (p2) imgs.push(preloadImage(fullsizeUrl(p2.image_id)));
+    if (p1) imgs.push(preloadImage(fullsizeUrl(p1.image_id, 1600)));
+    if (p2) imgs.push(preloadImage(fullsizeUrl(p2.image_id, 1600)));
 
     preloadRefs.current = imgs;
   }, [groupPhotos, currentIndex]);
