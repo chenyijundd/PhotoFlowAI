@@ -2331,14 +2331,19 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 100vh;
+  height: 100vh;
   padding: 48px 24px 64px;
   overflow-y: auto;
+}
+
+.project-picker-actions {
+  flex-shrink: 0;
 }
 
 .project-picker-header {
   text-align: center;
   margin-bottom: 32px;
+  flex-shrink: 0;
 }
 
 .project-picker-title {
@@ -2463,6 +2468,7 @@ body {
 .project-list-section {
   width: 100%;
   max-width: 640px;
+  flex-shrink: 0;
 }
 
 .project-list-header {

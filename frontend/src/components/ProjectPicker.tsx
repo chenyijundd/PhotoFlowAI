@@ -69,6 +69,12 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
       setCreateError("请输入项目名称");
       return;
     }
+    // Limit to 5 projects (excluding archived)
+    const activeCount = projects.filter((p) => !p.archived).length;
+    if (activeCount >= 5) {
+      setCreateError("最多允许创建 5 个项目。请归档或删除旧项目后再创建新项目。");
+      return;
+    }
     setCreating(true);
     setCreateError(null);
     try {
@@ -85,7 +91,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
     } finally {
       setCreating(false);
     }
-  }, [newName, onProjectOpened]);
+  }, [newName, onProjectOpened, projects]);
 
   const handleOpen = useCallback(
     async (projectId: string) => {
