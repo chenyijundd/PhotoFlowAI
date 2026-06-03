@@ -108,10 +108,16 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   const handleArchive = useCallback(
     async (projectId: string, archive: boolean) => {
       try {
+        // Optimistic: toggle archived flag locally so the
+        // 5-project limit check is immediately accurate.
+        setProjects((prev) =>
+          prev.map((p) => (p.id === projectId ? { ...p, archived: archive } : p)),
+        );
         await archiveProject(projectId, archive);
         setMenuProjectId(null);
-        loadProjects();
+        loadProjects();  // sync with server
       } catch (err) {
+        loadProjects();  // revert on error
         setError(err instanceof Error ? err.message : "操作失败");
       }
     },
@@ -126,9 +132,12 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
         return;
       }
       try {
+        // Optimistic: remove from local state immediately so the
+        // 5-project limit check sees the freed slot right away.
+        setProjects((prev) => prev.filter((p) => p.id !== projectId));
         await deleteProject(projectId, true);
         setMenuProjectId(null);
-        loadProjects();
+        loadProjects();  // sync with server to catch any edge cases
       } catch (err) {
         setError(err instanceof Error ? err.message : "删除失败");
       }
