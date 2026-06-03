@@ -37,6 +37,21 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   // ---- Confirm dialog state (replaces blocking window.confirm) ----
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const confirmBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Focus confirm button when dialog opens
+  useEffect(() => {
+    if (confirmMsg) {
+      const id = setTimeout(() => confirmBtnRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [confirmMsg]);
+
+  const resolveConfirm = useCallback((ok: boolean) => {
+    confirmResolveRef.current?.(ok);
+    confirmResolveRef.current = null;
+    setConfirmMsg(null);
+  }, []);
 
   // ---- Context menu state ----
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
@@ -381,7 +396,12 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
       {/* ---- Confirm dialog (React-based, avoids window.confirm blocking) ---- */}
       {confirmMsg && (
-        <div className="project-create-dialog">
+        <div
+          className="project-create-dialog"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") resolveConfirm(false);
+          }}
+        >
           <div className="project-create-card">
             <h2>确认操作</h2>
             <p style={{ color: "#ccc", fontSize: "14px", lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: "20px" }}>
@@ -389,23 +409,16 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
             </p>
             <div className="project-create-buttons">
               <button
+                ref={confirmBtnRef}
                 className="btn-primary"
                 style={{ background: "#e94560" }}
-                onClick={() => {
-                  confirmResolveRef.current?.(true);
-                  confirmResolveRef.current = null;
-                  setConfirmMsg(null);
-                }}
+                onClick={() => resolveConfirm(true)}
               >
                 确认删除
               </button>
               <button
                 className="btn-cancel"
-                onClick={() => {
-                  confirmResolveRef.current?.(false);
-                  confirmResolveRef.current = null;
-                  setConfirmMsg(null);
-                }}
+                onClick={() => resolveConfirm(false)}
               >
                 取消
               </button>
