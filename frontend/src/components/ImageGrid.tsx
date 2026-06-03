@@ -41,8 +41,9 @@ interface ImageGridProps {
   onLoadMore: () => void;
 }
 
-const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
-  ({ photos, total, loading, hasMore, onLoadMore }, ref) => {
+const ImageGrid = React.memo(
+  forwardRef<GridHandle, ImageGridProps>(
+    ({ photos, total, loading, hasMore, onLoadMore }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<Grid>(null);
     const [dimensions, setDimensions] = useState({ width: 1200, height: 800 });
@@ -183,6 +184,7 @@ const ImageGrid = forwardRef<GridHandle, ImageGridProps>(
       </div>
     );
   },
+  ),
 );
 
 ImageGrid.displayName = "ImageGrid";
