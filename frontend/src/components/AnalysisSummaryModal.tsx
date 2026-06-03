@@ -107,19 +107,26 @@ const AnalysisSummaryModal: React.FC<AnalysisSummaryModalProps> = ({
           </div>
         </div>
 
-        {/* Footer actions */}
-        <div className="ai-summary-actions">
-          <button className="btn-secondary" onClick={onClose}>
-            查看详情
-          </button>
-          <button className="btn-cull-primary" onClick={onCull}>
-            ⚡ 一键选片
-          </button>
-        </div>
-
-        <p className="ai-summary-hint">
-          提示：点击「查看详情」可手动逐张筛选，点击「一键选片」让 AI 自动处理
-        </p>
+        {/* Footer actions — only when analysis has actually been run */}
+        {total_analyzed > 0 ? (
+          <>
+            <div className="ai-summary-actions">
+              <button className="btn-secondary" onClick={onClose}>
+                查看详情
+              </button>
+              <button className="btn-cull-primary" onClick={onCull}>
+                ⚡ 一键选片
+              </button>
+            </div>
+            <p className="ai-summary-hint">
+              提示：点击「查看详情」可手动逐张筛选，点击「一键选片」让 AI 自动处理
+            </p>
+          </>
+        ) : (
+          <p className="ai-summary-hint" style={{ color: "#e94560" }}>
+            尚未执行智能分析，无法选片。请先点击「智能分析」完成 AI 检测。
+          </p>
+        )}
       </div>
     </div>
   );
