@@ -30,6 +30,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
   // ---- Create dialog state ----
   const [showCreate, setShowCreate] = useState(false);
+  const [createDialogKey, setCreateDialogKey] = useState(0);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -175,14 +176,10 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
         <button
           className="btn-primary btn-create-project"
           onClick={() => {
-            setShowCreate(false);
-            // Use setTimeout to ensure any stale dialog state is fully
-            // cleaned up before re-opening (prevents stuck disabled input).
-            setTimeout(() => {
-              setNewName("");
-              setCreateError(null);
-              setShowCreate(true);
-            }, 0);
+            setNewName("");
+            setCreateError(null);
+            setCreateDialogKey((k) => k + 1);
+            setShowCreate(true);
           }}
         >
           ＋ 新建项目
@@ -191,7 +188,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
       {/* ---- Create dialog ---- */}
       {showCreate && (
-        <div className="project-create-dialog">
+        <div className="project-create-dialog" key={createDialogKey}>
           <div className="project-create-card">
             <h2>新建项目</h2>
             <label className="project-create-label">
