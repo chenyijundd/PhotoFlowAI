@@ -34,16 +34,17 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // ---- Confirm dialog state (replaces blocking window.confirm) ----
+  const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+
   // ---- Context menu state ----
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset form state and focus input when dialog opens.
-  // The 100ms delay gives the browser time to paint the fixed-position
-  // overlay before we try to focus — essential after window.confirm()
-  // has disrupted the event loop.
+  // Reset form state and focus input when dialog opens
   useEffect(() => {
     if (showCreate) {
       setNewName("");
@@ -52,6 +53,15 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
       return () => clearTimeout(id);
     }
   }, [showCreate]);
+
+  /** Non-blocking confirmation — replaces window.confirm() which freezes
+   *  the browser event loop and breaks focus/rendering on return. */
+  const requestConfirm = useCallback((msg: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmMsg(msg);
+    });
+  }, []);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -144,9 +154,10 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
     async (projectId: string) => {
       const project = projects.find((p) => p.id === projectId);
       const name = project?.name || projectId;
-      if (!window.confirm(`确定要删除项目「${name}」吗？\n\n项目数据库文件也将被删除，此操作不可撤销。`)) {
-        return;
-      }
+      const ok = await requestConfirm(
+        `确定要删除项目「${name}」吗？\n\n项目数据库文件也将被删除，此操作不可撤销。`,
+      );
+      if (!ok) return;
       try {
         // Optimistic: remove from local state immediately so the
         // 5-project limit check sees the freed slot right away.
@@ -359,6 +370,41 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
       {/* Error toast (non-blocking) */}
       {error && projects.length > 0 && (
         <div className="project-picker-toast">{error}</div>
+      )}
+
+      {/* ---- Confirm dialog (React-based, avoids window.confirm blocking) ---- */}
+      {confirmMsg && (
+        <div className="project-create-dialog">
+          <div className="project-create-card">
+            <h2>确认操作</h2>
+            <p style={{ color: "#ccc", fontSize: "14px", lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: "20px" }}>
+              {confirmMsg}
+            </p>
+            <div className="project-create-buttons">
+              <button
+                className="btn-primary"
+                style={{ background: "#e94560" }}
+                onClick={() => {
+                  confirmResolveRef.current?.(true);
+                  confirmResolveRef.current = null;
+                  setConfirmMsg(null);
+                }}
+              >
+                确认删除
+              </button>
+              <button
+                className="btn-cancel"
+                onClick={() => {
+                  confirmResolveRef.current?.(false);
+                  confirmResolveRef.current = null;
+                  setConfirmMsg(null);
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
