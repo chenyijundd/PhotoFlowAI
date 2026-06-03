@@ -43,17 +43,27 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   // Reset dialog state every time it opens — this is the single source of
   // truth that prevents stale disabled / error state from a previous
   // creation attempt leaking into a new dialog instance.
+  //
+  // We use requestAnimationFrame to ensure the DOM has fully rendered
+  // before touching focus/disabled state.  Without this, browsers may
+  // batch paint updates and leave the input in a stale disabled state
+  // (especially after window.confirm() blocked the main thread).
   useEffect(() => {
     if (showCreate) {
-      setNewName("");
-      setCreateError(null);
-      setCreating(false);
-      // autoFocus is unreliable across conditional renders; explicit focus
-      // after a microtask ensures the DOM is painted before focusing.
-      const timer = setTimeout(() => {
-        nameInputRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
+      const raf = requestAnimationFrame(() => {
+        setNewName("");
+        setCreateError(null);
+        setCreating(false);
+        // Second rAF ensures the reset state has been committed to the DOM
+        // before we try to focus the input.
+        requestAnimationFrame(() => {
+          if (nameInputRef.current) {
+            nameInputRef.current.disabled = false;
+            nameInputRef.current.focus();
+          }
+        });
+      });
+      return () => cancelAnimationFrame(raf);
     }
   }, [showCreate]);
 
