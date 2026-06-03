@@ -565,7 +565,11 @@ export async function cullAll(): Promise<TaskStartResponse> {
   }
   const url = `${BACKEND_URL}/api/photos/cull-all`;
   const res = await fetch(url, { method: "POST" });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  if (!res.ok) {
+    // Extract FastAPI error detail from the response body
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `后端返回 ${res.status}`);
+  }
   return res.json();
 }
 

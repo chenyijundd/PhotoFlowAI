@@ -587,6 +587,20 @@ def _run_cull_all(task_id: str, event_queue: queue.Queue | None = None):
         state["result"] = OneClickCullResponse(total_photos=0)
         return
 
+    # ---- Pre-cull reset: clear previous non-manual cull results ----
+    # Ensures a re-analysis + re-cull produces correct results even when
+    # a previous cull was run without analysis data and starred everything.
+    # Photos with manually_operated_at (hand-picked by the photographer)
+    # are always preserved — AI never overrides a human decision.
+    stars_reset, rejects_reset = repo.reset_cull_results()
+    if stars_reset or rejects_reset:
+        logger.info(
+            "one-click-cull: reset %d non-manual star(s), %d non-manual reject(s)",
+            stars_reset, rejects_reset,
+        )
+        # Reload photos so in-memory state matches the reset database
+        all_photos = repo.get_all_photos()
+
     total_photos = len(all_photos)
     starred_ids = {p.image_id for p in all_photos if p.star_rating is not None and p.star_rating >= 1}
 
@@ -849,6 +863,19 @@ async def one_click_cull_start():
     Returns a task_id for polling via GET /api/photos/cull-progress/{task_id}
     or streaming via GET /api/photos/cull-stream/{task_id} (SSE).
     """
+    # Pre-check: refuse cull if no photos have been analysed yet.
+    # Without analysis data (closed_eye, blur, burst, duplicate), the cull
+    # algorithm would star every photo indiscriminately (Step 5).
+    repo = PhotoRepository()
+    unanalyzed = repo.get_unanalyzed_count()
+    all_photos = repo.get_all_photos()
+    total = len(all_photos)
+    if total > 0 and unanalyzed == total:
+        raise HTTPException(
+            status_code=400,
+            detail="尚未执行智能分析，无法选片。请先点击「智能分析」完成 AI 检测。",
+        )
+
     task_id = uuid.uuid4().hex[:8]
     state = {
         "task_id": task_id,

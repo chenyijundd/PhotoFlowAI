@@ -545,6 +545,27 @@ class PhotoRepository:
             ).fetchone()
             return row[0] if row else 0
 
+    def reset_cull_results(self) -> tuple:
+        """Clear non-manual star and reject statuses.
+
+        Removes star_rating and is_rejected from photos that were set by a
+        previous cull run, so a re-analysis followed by re-cull produces
+        correct results.  Photos with manually_operated_at set (hand-picked
+        by the photographer) are always preserved.
+
+        Returns (stars_reset, rejects_reset) counts.
+        """
+        with self._get_conn() as conn:
+            stars = conn.execute(
+                "UPDATE photos SET star_rating = 0"
+                " WHERE star_rating >= 1 AND manually_operated_at IS NULL"
+            ).rowcount
+            rejects = conn.execute(
+                "UPDATE photos SET is_rejected = 0"
+                " WHERE is_rejected >= 1 AND manually_operated_at IS NULL"
+            ).rowcount
+            return stars, rejects
+
     def get_ai_summary(self) -> dict:
         """Return a comprehensive summary of AI analysis results.
 
