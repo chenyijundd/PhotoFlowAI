@@ -14,7 +14,7 @@ from .ai_service import router as ai_router
 from .burst_service import router as burst_router
 from backend.importer.import_service import router as import_router
 from .export_service import router as export_router
-from database.connection import init_database
+from database.connection import init_database, close_all_pools
 from backend.logging_config import setup_all_logging
 
 # Initialize rotating log handlers
@@ -60,6 +60,12 @@ async def get_status():
             "export": "ready",
         },
     }
+
+
+@app.on_event("shutdown")
+async def shutdown_db_pools():
+    """Close all pooled database connections on server shutdown."""
+    close_all_pools()
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8765):

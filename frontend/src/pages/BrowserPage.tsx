@@ -250,11 +250,6 @@ const BrowserPage: React.FC = () => {
   }, []);
 
 
-  // Clear AI category filter when user switches the main filter tab
-  useEffect(() => {
-    setAiCategory(null);
-  }, [filterMode]);
-
   /** Fetch AI category counts after analysis or cull step completes. */
   const fetchAICounts = useCallback(async () => {
     try {
@@ -1076,25 +1071,25 @@ const BrowserPage: React.FC = () => {
           <div className="filter-bar">
             <button
               className={`filter-btn${filterMode === "all" ? " filter-btn--active" : ""}`}
-              onClick={() => setFilterMode("all")}
+              onClick={() => { setFilterMode("all"); setAiCategory(null); }}
             >
               全部({allCount})
             </button>
             <button
               className={`filter-btn${filterMode === "starred" ? " filter-btn--active" : ""}`}
-              onClick={() => setFilterMode("starred")}
+              onClick={() => { setFilterMode("starred"); setAiCategory(null); }}
             >
               已选({starredCount})
             </button>
             <button
               className={`filter-btn${filterMode === "unprocessed" ? " filter-btn--active" : ""}`}
-              onClick={() => setFilterMode("unprocessed")}
+              onClick={() => { setFilterMode("unprocessed"); setAiCategory(null); }}
             >
               待处理({unprocessedCount})
             </button>
             <button
               className={`filter-btn${filterMode === "rejected" ? " filter-btn--active" : ""}`}
-              onClick={() => setFilterMode("rejected")}
+              onClick={() => { setFilterMode("rejected"); setAiCategory(null); }}
             >
               废片({rejectedCount})
             </button>
@@ -1191,37 +1186,37 @@ const BrowserPage: React.FC = () => {
         <span className="ai-cat-label">🤖 基于全部照片</span>
         <span
           className={`ai-cat-chip${aiCategory === null ? " ai-cat-active" : ""}`}
-          onClick={() => setAiCategory(null)}
+          onClick={() => { setAiCategory(null); setFilterMode("all"); }}
         >
           全部
         </span>
         <span
           className={`ai-cat-chip${aiCategory === "closed_eye" ? " ai-cat-active" : ""} ai-cat-eye`}
-          onClick={() => setAiCategory("closed_eye")}
+          onClick={() => { setAiCategory("closed_eye"); setFilterMode("all"); }}
         >
           闭眼{eyeClosedCount > 0 ? ` (${eyeClosedCount})` : ""}
         </span>
         <span
           className={`ai-cat-chip${aiCategory === "blur" ? " ai-cat-active" : ""} ai-cat-blur`}
-          onClick={() => setAiCategory("blur")}
+          onClick={() => { setAiCategory("blur"); setFilterMode("all"); }}
         >
           模糊{blurCount > 0 ? ` (${blurCount})` : ""}
         </span>
         <span
           className={`ai-cat-chip${aiCategory === "burst" ? " ai-cat-active" : ""} ai-cat-burst`}
-          onClick={() => setAiCategory("burst")}
+          onClick={() => { setAiCategory("burst"); setFilterMode("all"); }}
         >
           连拍{burstCount > 0 ? ` (${burstCount})` : ""}
         </span>
         <span
           className={`ai-cat-chip${aiCategory === "duplicate" ? " ai-cat-active" : ""} ai-cat-dup`}
-          onClick={() => setAiCategory("duplicate")}
+          onClick={() => { setAiCategory("duplicate"); setFilterMode("all"); }}
         >
           重复{dupCount > 0 ? ` (${dupCount})` : ""}
         </span>
         <span
           className={`ai-cat-chip${aiCategory === "best" ? " ai-cat-active" : ""} ai-cat-best`}
-          onClick={() => setAiCategory("best")}
+          onClick={() => { setAiCategory("best"); setFilterMode("all"); }}
         >
           最佳推荐{bestCount > 0 ? ` (${bestCount})` : ""}
         </span>

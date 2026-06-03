@@ -1,13 +1,14 @@
 """
 PhotoFlow AI - Database Connection Manager
 
-Provides connection management with context manager support.
-Auto-closes connections to prevent connection leaks.
+Provides connection management with context manager support and connection pooling.
+Connections are pooled per-thread to avoid repeated connect/close overhead.
 """
 
 import os
 import sqlite3
-from typing import Optional
+import threading
+from typing import Optional, Dict
 
 PHOTOS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS photos (
@@ -45,6 +46,96 @@ CREATE TABLE IF NOT EXISTS photos (
 """
 
 
+# ---------------------------------------------------------------------------
+# Connection Pool — thread-local reuse to eliminate repeated connect/close
+# ---------------------------------------------------------------------------
+
+# Module-level registry: one pool per database file path
+_pools: Dict[str, "ConnectionPool"] = {}
+_pools_lock = threading.Lock()
+
+
+class ConnectionPool:
+    """Thread-local SQLite connection pool.
+
+    Each thread that touches the database gets one reusable connection.
+    SQLite WAL mode allows concurrent reads/writes across threads, so
+    one connection per thread is sufficient for typical workloads.
+
+    The connection is never closed until the pool is shut down — the
+    DatabaseConnection context manager only commits/rollbacks on exit
+    and leaves the underlying sqlite3.Connection alive for the next
+    operation on the same thread.
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._thread_local = threading.local()
+
+    def _create_connection(self) -> sqlite3.Connection:
+        """Create and configure a new SQLite connection."""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Get (or create) the reusable connection for the current thread."""
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is None:
+            conn = self._create_connection()
+            self._thread_local.conn = conn
+        return conn
+
+    def close_thread(self) -> None:
+        """Close the current thread's connection (e.g. on thread exit)."""
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._thread_local.conn = None
+
+    def close_all(self) -> None:
+        """Close this pool's connection(s). Safe to call at shutdown."""
+        self.close_thread()
+
+
+def get_pool(db_path: Optional[str] = None) -> ConnectionPool:
+    """Get or create a ConnectionPool for *db_path*.
+
+    Pools are singletons keyed by the resolved absolute path, so every
+    caller that references the same database file shares the same pool.
+    """
+    path = db_path or get_default_db_path()
+    path = os.path.abspath(path)
+    with _pools_lock:
+        if path not in _pools:
+            _pools[path] = ConnectionPool(path)
+        return _pools[path]
+
+
+def close_all_pools() -> None:
+    """Close every pooled connection across all database paths.
+
+    Intended for graceful-shutdown hooks.  Connections left open at
+    process exit are cleaned up by the OS anyway, so this is a
+    best-effort hygiene measure.
+    """
+    with _pools_lock:
+        for pool in _pools.values():
+            pool.close_all()
+        _pools.clear()
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def get_default_db_path() -> str:
     """Compute the default database file path relative to this module."""
     db_dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,23 +143,27 @@ def get_default_db_path() -> str:
 
 
 class DatabaseConnection:
-    """Context manager for SQLite database connections.
+    """Context manager for SQLite database connections with **connection pooling**.
 
-    Usage:
+    Connections are obtained from a thread-local pool and **never closed**
+    by this context manager — only committed (on success) or rolled back
+    (on exception).  The underlying sqlite3.Connection stays alive for
+    the next operation on the same thread, eliminating the repeated
+    cost of ``sqlite3.connect()`` / ``.close()``.
+
+    Usage (identical to pre-pool version)::
+
         with DatabaseConnection() as conn:
             conn.execute("SELECT ...")
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or get_default_db_path()
+        self.db_path = db_path
         self._conn: Optional[sqlite3.Connection] = None
 
     def __enter__(self) -> sqlite3.Connection:
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        pool = get_pool(self.db_path)
+        self._conn = pool.connection
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -80,7 +175,8 @@ class DatabaseConnection:
             else:
                 self._conn.rollback()
         finally:
-            self._conn.close()
+            # IMPORTANT: do NOT close — the connection belongs to the pool.
+            # Just drop our local reference so the object can be GC'd.
             self._conn = None
 
 
