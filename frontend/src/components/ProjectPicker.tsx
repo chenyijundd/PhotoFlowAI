@@ -9,7 +9,7 @@
  * Once a project is opened, the parent (App) switches to BrowserPage.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ProjectInfo } from "../api/projectApi";
 import {
   fetchProjects,
@@ -30,7 +30,6 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
   // ---- Create dialog state ----
   const [showCreate, setShowCreate] = useState(false);
-  const [createDialogKey, setCreateDialogKey] = useState(0);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -38,6 +37,25 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   // ---- Context menu state ----
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset dialog state every time it opens — this is the single source of
+  // truth that prevents stale disabled / error state from a previous
+  // creation attempt leaking into a new dialog instance.
+  useEffect(() => {
+    if (showCreate) {
+      setNewName("");
+      setCreateError(null);
+      setCreating(false);
+      // autoFocus is unreliable across conditional renders; explicit focus
+      // after a microtask ensures the DOM is painted before focusing.
+      const timer = setTimeout(() => {
+        nameInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [showCreate]);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -190,12 +208,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
       <div className="project-picker-actions">
         <button
           className="btn-primary btn-create-project"
-          onClick={() => {
-            setNewName("");
-            setCreateError(null);
-            setCreateDialogKey((k) => k + 1);
-            setShowCreate(true);
-          }}
+          onClick={() => setShowCreate(true)}
         >
           ＋ 新建项目
         </button>
@@ -203,12 +216,13 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
       {/* ---- Create dialog ---- */}
       {showCreate && (
-        <div className="project-create-dialog" key={createDialogKey}>
+        <div className="project-create-dialog">
           <div className="project-create-card">
             <h2>新建项目</h2>
             <label className="project-create-label">
               项目名称
               <input
+                ref={nameInputRef}
                 type="text"
                 className="project-create-input"
                 placeholder="例如：张家婚礼、2026 春季写真"
