@@ -40,30 +40,12 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset dialog state every time it opens — this is the single source of
-  // truth that prevents stale disabled / error state from a previous
-  // creation attempt leaking into a new dialog instance.
-  //
-  // We use requestAnimationFrame to ensure the DOM has fully rendered
-  // before touching focus/disabled state.  Without this, browsers may
-  // batch paint updates and leave the input in a stale disabled state
-  // (especially after window.confirm() blocked the main thread).
+  // Focus input when dialog opens (cosmetic — input is always enabled)
   useEffect(() => {
     if (showCreate) {
-      const raf = requestAnimationFrame(() => {
-        setNewName("");
-        setCreateError(null);
-        setCreating(false);
-        // Second rAF ensures the reset state has been committed to the DOM
-        // before we try to focus the input.
-        requestAnimationFrame(() => {
-          if (nameInputRef.current) {
-            nameInputRef.current.disabled = false;
-            nameInputRef.current.focus();
-          }
-        });
-      });
-      return () => cancelAnimationFrame(raf);
+      setNewName("");
+      setCreateError(null);
+      nameInputRef.current?.focus();
     }
   }, [showCreate]);
 
@@ -92,6 +74,8 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
   }, [menuProjectId]);
 
   const handleCreate = useCallback(async () => {
+    // Guard against double-submit (replaces disabled prop on button/input)
+    if (creating) return;
     const name = newName.trim();
     if (!name) {
       setCreateError("请输入项目名称");
@@ -119,7 +103,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
     } finally {
       setCreating(false);
     }
-  }, [newName, onProjectOpened, projects]);
+  }, [newName, onProjectOpened, projects, creating]);
 
   const handleOpen = useCallback(
     async (projectId: string) => {
@@ -246,7 +230,6 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
                   if (e.key === "Escape") setShowCreate(false);
                 }}
                 autoFocus
-                disabled={creating}
                 maxLength={100}
               />
             </label>
@@ -262,7 +245,6 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
               <button
                 className="btn-primary"
                 onClick={handleCreate}
-                disabled={creating || !newName.trim()}
               >
                 {creating ? "创建中..." : "创建并打开"}
               </button>
