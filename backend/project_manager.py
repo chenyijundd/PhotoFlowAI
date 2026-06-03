@@ -162,6 +162,7 @@ class ProjectManager:
         """Return a connection to the meta-database."""
         conn = sqlite3.connect(self._meta_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
