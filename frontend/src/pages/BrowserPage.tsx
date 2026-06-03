@@ -24,11 +24,13 @@ import { useBatchSelection } from "../context/BatchSelectionContext";
 import type { ExportMode } from "../../types";
 
 /** Strip Electron IPC wrapper prefix from error messages.
- *  Electron wraps remote method errors as:
- *    "Error invoking remote method '<channel>': <actual message>"
- *  Only the actual message is meaningful to the user. */
+ *  Electron serialises a thrown Error as:
+ *    "Error invoking remote method '<channel>': Error: <actual message>"
+ *  Both the IPC wrapper and the "Error: " prefix are noise to the user. */
 function cleanIpcError(raw: string): string {
-  return raw.replace(/^Error invoking remote method '[^']*':\s*/, "");
+  return raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, "")
+    .replace(/^Error:\s*/, "");
 }
 
 const BrowserPage: React.FC = () => {
