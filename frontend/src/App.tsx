@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting");
   const [appPhase, setAppPhase] = useState<AppPhase>("connecting");
   const [currentProject, setCurrentProject] = useState<ProjectInfo | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   // ── Backend health check ──────────────────────────────────────────
   useEffect(() => {
@@ -126,7 +127,11 @@ const App: React.FC = () => {
   if (appPhase === "picking_project") {
     return (
       <ErrorBoundary>
-        <ProjectPicker onProjectOpened={handleProjectOpened} />
+        <ProjectPicker
+          onProjectOpened={handleProjectOpened}
+          showArchived={showArchived}
+          onShowArchivedChange={setShowArchived}
+        />
       </ErrorBoundary>
     );
   }

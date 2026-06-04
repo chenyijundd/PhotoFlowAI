@@ -21,9 +21,15 @@ import {
 
 interface ProjectPickerProps {
   onProjectOpened: (project: ProjectInfo) => void;
+  showArchived: boolean;
+  onShowArchivedChange: (show: boolean) => void;
 }
 
-const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
+const ProjectPicker: React.FC<ProjectPickerProps> = ({
+  onProjectOpened,
+  showArchived,
+  onShowArchivedChange,
+}) => {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +61,6 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
 
   // ---- Context menu state ----
   const [menuProjectId, setMenuProjectId] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -308,7 +313,7 @@ const ProjectPicker: React.FC<ProjectPickerProps> = ({ onProjectOpened }) => {
             <input
               type="checkbox"
               checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
+              onChange={(e) => onShowArchivedChange(e.target.checked)}
             />
             {" "}显示已归档
           </label>
