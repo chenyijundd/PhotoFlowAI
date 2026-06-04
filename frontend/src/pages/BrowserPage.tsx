@@ -247,6 +247,13 @@ const BrowserPage: React.FC<{
     return () => setOnChanged(null);
   }, [setOnChanged, refresh, loadCounts]);
 
+  // Clear batch selection when switching tabs — prevents cross-tab
+  // selection leakage (e.g. photos selected in "全部" remain checked
+  // after switching to "已选").
+  useEffect(() => {
+    clearSelection();
+  }, [filterMode, aiCategory]);
+
   // On mount, detect if AI analysis was previously completed (across sessions).
   // Uses the merged /api/photos/counts to get all counts in one request.
   useEffect(() => {
@@ -488,6 +495,7 @@ const BrowserPage: React.FC<{
   }, [refresh, getNextIdAfterAction, selectPhoto, loadCounts]);
 
   const handleRestore = useCallback(async (imageId: string) => {
+    clearSelection(); // exit batch-selection mode, if any
     try {
       await restorePhoto(imageId);
       refresh();
@@ -500,7 +508,7 @@ const BrowserPage: React.FC<{
     } catch (err) {
       console.error("Failed to restore photo:", err);
     }
-  }, [refresh, getNextIdAfterAction, selectPhoto, loadCounts]);
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadCounts, clearSelection]);
 
   // Handler for DetailPanel: opens the permanent delete confirmation dialog
   const handleRequestPermanentDelete = useCallback((imageId: string) => {
@@ -775,10 +783,10 @@ const BrowserPage: React.FC<{
           } else {
             // In other views: batch trash all selected
             const ids = Array.from(selectedIdsRef.current);
+            clearSelectionRef.current(); // exit selection mode immediately
             batchTrash(ids).then(() => {
               setStatusOverlayRef.current("trash");
               setTimeout(() => setStatusOverlayRef.current(null), 500);
-              clearSelectionRef.current();
               refreshRef.current();
               loadCountsRef.current();
             }).catch(err => console.error("Batch trash failed:", err));
@@ -819,10 +827,10 @@ const BrowserPage: React.FC<{
         // Multi-select: batch restore all selected
         if (selectionCountRef.current >= 2) {
           const ids = Array.from(selectedIdsRef.current);
+          clearSelectionRef.current(); // exit selection mode immediately
           batchRestore(ids).then(() => {
             setStatusOverlayRef.current("undo");
             setTimeout(() => setStatusOverlayRef.current(null), 500);
-            clearSelectionRef.current();
             refreshRef.current();
             loadCountsRef.current();
           }).catch(err => console.error("Batch restore failed:", err));
@@ -841,6 +849,21 @@ const BrowserPage: React.FC<{
   );
 
   useKeyboardHandler("ctrl-shift-delete-restore", handleCtrlShiftDelete, KEY_PRIORITY.APP, !isCompareMode && !isBurstCompareMode);
+
+  // Escape — exit photo selection mode
+  const handleEscape = useCallback(
+    (e: KeyboardEvent): boolean => {
+      if (e.key !== "Escape") return false;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (selectionCountRef.current === 0) return false; // let other handlers work
+      e.preventDefault();
+      clearSelectionRef.current();
+      return true;
+    },
+    [],
+  );
+  useKeyboardHandler("escape-clear-selection", handleEscape, KEY_PRIORITY.APP, !isCompareMode && !isBurstCompareMode);
 
   // Ctrl+Z / Ctrl+Y — undo / redo for star and reject operations
   const handleUndoRedoKey = useCallback(
@@ -1479,12 +1502,12 @@ const BrowserPage: React.FC<{
                     style={{ background: "#1dd1a1", color: "#111" }}
                     onClick={async () => {
                       const ids = Array.from(selectedIds);
+                      clearSelection(); // exit selection mode immediately
                       try {
                         await batchRestore(ids);
                       } catch (err) {
                         console.error("Batch restore failed:", err);
                       }
-                      clearSelection();
                       refresh();
                       loadCounts();
                     }}
@@ -1522,12 +1545,12 @@ const BrowserPage: React.FC<{
                     style={{ background: "transparent", color: "#888", border: "1px solid #555" }}
                     onClick={async () => {
                       const ids = Array.from(selectedIds);
+                      clearSelection(); // exit selection mode immediately
                       try {
                         await batchTrash(ids);
                       } catch (err) {
                         console.error("Batch trash failed:", err);
                       }
-                      clearSelection();
                       refresh();
                       loadCounts();
                     }}
