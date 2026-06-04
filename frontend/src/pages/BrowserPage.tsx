@@ -15,8 +15,8 @@ import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
-import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull } from "../api/photoApi";
-import type { ImportResponse, PhotoFilterMode, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
+import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, batchRestore, batchTrash, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull, trashPhoto, restorePhoto, permanentDeletePhoto, fullsizeUrl } from "../api/photoApi";
+import type { ImportResponse, PhotoFilterMode, PhotoInfo, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
 import AnalysisSummaryModal from "../components/AnalysisSummaryModal";
@@ -58,6 +58,26 @@ const BrowserPage: React.FC<{
   const [burstCount, setBurstCount] = useState(0);
   const [bestCount, setBestCount] = useState(0);
   const [eyeClosedCount, setEyeClosedCount] = useState(0);
+  const [trashCount, setTrashCount] = useState(0);
+
+  // Trash confirm dialog state — supports both single and batch (multi-photo)
+  const [trashConfirmPhotos, setTrashConfirmPhotos] = useState<PhotoInfo[]>([]);
+  const [trashConfirmIndex, setTrashConfirmIndex] = useState(0);
+  const [trashIncludePaired, setTrashIncludePaired] = useState(true);
+  const trashConfirmBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Derived: current photo shown in the dialog (null when dialog is closed)
+  const trashConfirmPhoto = trashConfirmPhotos.length > 0
+    ? trashConfirmPhotos[trashConfirmIndex] ?? null
+    : null;
+
+  // Auto-focus confirm button when trash dialog opens
+  useEffect(() => {
+    if (trashConfirmPhotos.length > 0) {
+      const id = setTimeout(() => trashConfirmBtnRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [trashConfirmPhotos]);
 
   const {
     photos,
@@ -196,6 +216,7 @@ const BrowserPage: React.FC<{
       setStarredCount(counts.starred);
       setRejectedCount(counts.rejected);
       setUnprocessedCount(counts.unprocessed);
+      setTrashCount(counts.trash_count ?? 0);
       setBlurCount(counts.blur_count);
       setEyeClosedCount(counts.closed_eye_count);
       setDupCount(counts.duplicate_count);
@@ -449,6 +470,68 @@ const BrowserPage: React.FC<{
     }
   }, [selectedIds, photos, recordBatch, clearSelection, refresh, loadCounts]);
 
+  // ---- Trash / Delete handlers ----
+
+  const handleTrash = useCallback(async (imageId: string) => {
+    try {
+      await trashPhoto(imageId);
+      refresh();
+      loadCounts();
+      setStatusOverlay("trash");
+      setTimeout(() => setStatusOverlay(null), 500);
+      // Advance to next photo
+      const nextId = getNextIdAfterAction(imageId);
+      if (nextId) selectPhoto(nextId);
+    } catch (err) {
+      console.error("Failed to trash photo:", err);
+    }
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadCounts]);
+
+  const handleRestore = useCallback(async (imageId: string) => {
+    try {
+      await restorePhoto(imageId);
+      refresh();
+      loadCounts();
+      setStatusOverlay("undo");
+      setTimeout(() => setStatusOverlay(null), 500);
+      // Auto-advance to next photo
+      const nextId = getNextIdAfterAction(imageId);
+      if (nextId) selectPhoto(nextId);
+    } catch (err) {
+      console.error("Failed to restore photo:", err);
+    }
+  }, [refresh, getNextIdAfterAction, selectPhoto, loadCounts]);
+
+  // Handler for DetailPanel: opens the permanent delete confirmation dialog
+  const handleRequestPermanentDelete = useCallback((imageId: string) => {
+    const photo = photos.find((p) => p.image_id === imageId);
+    if (photo) {
+      setTrashIncludePaired(true);
+      setTrashConfirmIndex(0);
+      setTrashConfirmPhotos([photo]);
+    }
+  }, [photos]);
+
+  const handlePermanentDelete = useCallback(async () => {
+    const photos = trashConfirmPhotos;
+    if (photos.length === 0) return;
+    try {
+      for (const p of photos) {
+        await permanentDeletePhoto(p.image_id, trashIncludePaired);
+      }
+    } catch (err) {
+      console.error("Failed to permanently delete photo(s):", err);
+    }
+    setTrashConfirmPhotos([]);
+    setTrashConfirmIndex(0);
+    clearSelection();
+    refresh();
+    loadCounts();
+    setStatusOverlay("trash");
+    setStatusMessage("🗑️ 已彻底删除");
+    setTimeout(() => setStatusOverlay(null), 500);
+  }, [trashConfirmPhotos, trashIncludePaired, clearSelection, refresh, loadCounts, setStatusOverlay, setStatusMessage]);
+
   // Ctrl+A — select all visible photos
   const handleCtrlA = useCallback(
     (e: KeyboardEvent): boolean => {
@@ -622,10 +705,29 @@ const BrowserPage: React.FC<{
   const photosRef = useRef(photos);
   photosRef.current = photos;
 
+  // Refs for batch selection & actions (used in keyboard handlers to avoid stale closures)
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  const selectionCountRef = useRef(selectionCount);
+  selectionCountRef.current = selectionCount;
+  const clearSelectionRef = useRef(clearSelection);
+  clearSelectionRef.current = clearSelection;
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const loadCountsRef = useRef(loadCounts);
+  loadCountsRef.current = loadCounts;
+
+  // Ref to track trash dialog visibility (used in Enter handler to prevent
+  // lightbox from opening when the user is confirming a delete).
+  const trashConfirmActiveRef = useRef(false);
+  trashConfirmActiveRef.current = trashConfirmPhotos.length > 0;
+
   const handleEnterKey = useCallback(
     (e: KeyboardEvent): boolean => {
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return false;
+      // Don't open lightbox when trash confirm dialog is shown
+      if (trashConfirmActiveRef.current) return false;
 
       if (e.key === "Enter") {
         const p = photosRef.current;
@@ -642,6 +744,103 @@ const BrowserPage: React.FC<{
   );
 
   useKeyboardHandler("enter-lightbox", handleEnterKey, KEY_PRIORITY.GRID, !isCompareMode && !isLightboxMode && !isBurstCompareMode);
+
+  // Ctrl+Delete — move to trash (or permanent delete in trash view)
+  // Supports both single-photo and multi-select
+  const handleTrashKeyRef = useRef(handleTrash);
+  handleTrashKeyRef.current = handleTrash;
+  const handleRestoreKeyRef = useRef(handleRestore);
+  handleRestoreKeyRef.current = handleRestore;
+
+  const handleCtrlDelete = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if ((e.ctrlKey || e.metaKey) && e.key === "Delete" && !e.shiftKey) {
+        e.preventDefault();
+
+        // Multi-select: operate on all selected photos
+        if (selectionCountRef.current >= 2) {
+          if (filterMode === "trash") {
+            // In trash view: open permanent delete dialog for all selected
+            const ids = Array.from(selectedIdsRef.current);
+            const selectedPhotos = ids
+              .map(id => photosRef.current.find(p => p.image_id === id))
+              .filter(Boolean) as PhotoInfo[];
+            if (selectedPhotos.length > 0) {
+              setTrashIncludePaired(true);
+              setTrashConfirmIndex(0);
+              setTrashConfirmPhotos(selectedPhotos);
+            }
+          } else {
+            // In other views: batch trash all selected
+            const ids = Array.from(selectedIdsRef.current);
+            batchTrash(ids).then(() => {
+              setStatusOverlayRef.current("trash");
+              setTimeout(() => setStatusOverlayRef.current(null), 500);
+              clearSelectionRef.current();
+              refreshRef.current();
+              loadCountsRef.current();
+            }).catch(err => console.error("Batch trash failed:", err));
+          }
+          return true;
+        }
+
+        // Single photo
+        const photo = selectedPhotoRef.current;
+        if (!photo) return false;
+        if (filterMode === "trash") {
+          // In trash view: open permanent delete confirmation dialog
+          setTrashIncludePaired(true);
+          setTrashConfirmIndex(0);
+          setTrashConfirmPhotos([photo]);
+        } else {
+          // In any other view: move to trash
+          handleTrashKeyRef.current(photo.image_id);
+        }
+        return true;
+      }
+      return false;
+    },
+    [filterMode],
+  );
+
+  useKeyboardHandler("ctrl-delete-trash", handleCtrlDelete, KEY_PRIORITY.APP, !isCompareMode && !isBurstCompareMode);
+
+  // Ctrl+Shift+Delete — restore (trash tab only)
+  const handleCtrlShiftDelete = useCallback(
+    (e: KeyboardEvent): boolean => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "Delete") {
+        if (filterMode !== "trash") return false;
+        e.preventDefault();
+
+        // Multi-select: batch restore all selected
+        if (selectionCountRef.current >= 2) {
+          const ids = Array.from(selectedIdsRef.current);
+          batchRestore(ids).then(() => {
+            setStatusOverlayRef.current("undo");
+            setTimeout(() => setStatusOverlayRef.current(null), 500);
+            clearSelectionRef.current();
+            refreshRef.current();
+            loadCountsRef.current();
+          }).catch(err => console.error("Batch restore failed:", err));
+          return true;
+        }
+
+        // Single photo: restore it
+        const photo = selectedPhotoRef.current;
+        if (!photo) return false;
+        handleRestoreKeyRef.current(photo.image_id);
+        return true;
+      }
+      return false;
+    },
+    [filterMode],
+  );
+
+  useKeyboardHandler("ctrl-shift-delete-restore", handleCtrlShiftDelete, KEY_PRIORITY.APP, !isCompareMode && !isBurstCompareMode);
 
   // Ctrl+Z / Ctrl+Y — undo / redo for star and reject operations
   const handleUndoRedoKey = useCallback(
@@ -1111,6 +1310,12 @@ const BrowserPage: React.FC<{
             >
               废片({rejectedCount})
             </button>
+            <button
+              className={`filter-btn${filterMode === "trash" ? " filter-btn--active" : ""}`}
+              onClick={() => { setFilterMode("trash"); setAiCategory(null); }}
+            >
+              回收站({trashCount})
+            </button>
           </div>
         </div>
         <div className="browser-header-right">
@@ -1267,12 +1472,71 @@ const BrowserPage: React.FC<{
               <span className="batch-bar-count">
                 已选 <strong>{selectionCount}</strong> 张
               </span>
-              <button className="batch-bar-btn batch-bar-btn--star" onClick={handleBatchStar}>
-                ⭐ 全部加星
-              </button>
-              <button className="batch-bar-btn batch-bar-btn--reject" onClick={handleBatchReject}>
-                🗑️ 全部废片
-              </button>
+              {filterMode === "trash" ? (
+                <>
+                  <button
+                    className="btn-small"
+                    style={{ background: "#1dd1a1", color: "#111" }}
+                    onClick={async () => {
+                      const ids = Array.from(selectedIds);
+                      try {
+                        await batchRestore(ids);
+                      } catch (err) {
+                        console.error("Batch restore failed:", err);
+                      }
+                      clearSelection();
+                      refresh();
+                      loadCounts();
+                    }}
+                  >
+                    ↩️ 还原
+                  </button>
+                  <button
+                    className="btn-small"
+                    style={{ background: "#e94560", color: "#fff" }}
+                    onClick={() => {
+                      const ids = Array.from(selectedIds);
+                      const selectedPhotos = ids
+                        .map(id => photos.find(p => p.image_id === id))
+                        .filter(Boolean) as PhotoInfo[];
+                      if (selectedPhotos.length > 0) {
+                        setTrashIncludePaired(true);
+                        setTrashConfirmIndex(0);
+                        setTrashConfirmPhotos(selectedPhotos);
+                      }
+                    }}
+                  >
+                    🔥 彻底删除
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="batch-bar-btn batch-bar-btn--star" onClick={handleBatchStar}>
+                    ⭐ 全部加星
+                  </button>
+                  <button className="batch-bar-btn batch-bar-btn--reject" onClick={handleBatchReject}>
+                    🗑️ 全部废片
+                  </button>
+                  <button
+                    className="btn-small"
+                    style={{ background: "transparent", color: "#888", border: "1px solid #555" }}
+                    onClick={async () => {
+                      const ids = Array.from(selectedIds);
+                      try {
+                        await batchTrash(ids);
+                      } catch (err) {
+                        console.error("Batch trash failed:", err);
+                      }
+                      clearSelection();
+                      refresh();
+                      loadCounts();
+                    }}
+                    title="移到回收站"
+                  >
+                    🗑️ 移到回收站
+                  </button>
+                </>
+              )}
               <button className="batch-bar-btn batch-bar-btn--cancel" onClick={clearSelection}>
                 ✕ 取消选择
               </button>
@@ -1305,6 +1569,12 @@ const BrowserPage: React.FC<{
                 <p>所有照片已选或已废</p>
               </div>
             )
+          ) : filterMode === "trash" && photos.length === 0 && !loading ? (
+            <div className="grid-empty">
+              <div className="empty-icon">♻️</div>
+              <h3>回收站为空</h3>
+              <p>Ctrl+Delete 移入回收站 · Ctrl+Shift+Delete 还原照片</p>
+            </div>
           ) : (
             <ImageGrid
               ref={gridRef}
@@ -1320,8 +1590,138 @@ const BrowserPage: React.FC<{
           imageId={selectedId}
           refreshKey={detailRefreshKey}
           onBurstAction={handleBurstAction}
+          filterMode={filterMode}
+          onTrashRequest={(id) => handleTrash(id)}
+          onRestoreRequest={(id) => handleRestore(id)}
+          onPermanentDeleteRequest={(id) => handleRequestPermanentDelete(id)}
+          actionsDisabled={selectionCount >= 2}
         />
       </div>
+
+      {/* Permanent Delete Confirmation Dialog — supports single & batch */}
+      {trashConfirmPhotos.length > 0 && trashConfirmPhoto && (
+        <div
+          className="trash-confirm-overlay"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setTrashConfirmPhotos([]);
+              setTrashConfirmIndex(0);
+            }
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              setTrashConfirmIndex((i) => (i > 0 ? i - 1 : trashConfirmPhotos.length - 1));
+            }
+            if (e.key === "ArrowRight") {
+              e.preventDefault();
+              setTrashConfirmIndex((i) => (i < trashConfirmPhotos.length - 1 ? i + 1 : 0));
+            }
+          }}
+        >
+          <div className="trash-confirm-dialog">
+            <h2>
+              确认彻底删除
+              {trashConfirmPhotos.length > 1 && (
+                <span className="trash-confirm-count">（共 {trashConfirmPhotos.length} 张）</span>
+              )}
+            </h2>
+
+            {/* Photo preview with left/right navigation */}
+            <div className="trash-confirm-info">
+              {trashConfirmPhotos.length > 1 && (() => {
+                  const nextIdx = (trashConfirmIndex + 1) % trashConfirmPhotos.length;
+                  const nextPhoto = trashConfirmPhotos[nextIdx];
+                  return (
+                <div className="trash-confirm-nav">
+                  <button
+                    className="trash-confirm-arrow"
+                    onClick={() => setTrashConfirmIndex((i) => (i > 0 ? i - 1 : trashConfirmPhotos.length - 1))}
+                    title="上一张 (←)"
+                  >
+                    ◀
+                  </button>
+                  <div className="trash-confirm-dual">
+                    <img
+                      src={fullsizeUrl(trashConfirmPhoto.image_id, 300)}
+                      alt={trashConfirmPhoto.file_name}
+                      className="trash-confirm-thumb"
+                    />
+                    <img
+                      src={fullsizeUrl(nextPhoto.image_id, 300)}
+                      alt={nextPhoto.file_name}
+                      className="trash-confirm-thumb"
+                    />
+                  </div>
+                  <button
+                    className="trash-confirm-arrow"
+                    onClick={() => setTrashConfirmIndex((i) => (i < trashConfirmPhotos.length - 1 ? i + 1 : 0))}
+                    title="下一张 (→)"
+                  >
+                    ▶
+                  </button>
+                </div>
+                  );
+              })()}
+              {trashConfirmPhotos.length === 1 && (
+                <img
+                  src={fullsizeUrl(trashConfirmPhoto.image_id, 300)}
+                  alt={trashConfirmPhoto.file_name}
+                  className="trash-confirm-thumb"
+                />
+              )}
+              <p className="trash-confirm-name">{trashConfirmPhoto.file_name}</p>
+              {trashConfirmPhotos.length > 1 && (
+                <p className="trash-confirm-position">
+                  第 {trashConfirmIndex + 1} / {trashConfirmPhotos.length} 张
+                </p>
+              )}
+            </div>
+
+            {/* RAW+JPEG pairing checkbox */}
+            {trashConfirmPhoto.raw_jpeg_pair_id && (
+              <label className="trash-confirm-check">
+                <input
+                  type="checkbox"
+                  checked={trashIncludePaired}
+                  onChange={(e) => setTrashIncludePaired(e.target.checked)}
+                />
+                同时删除配对的 RAW/JPG 文件
+              </label>
+            )}
+
+            {/* Burst/duplicate group info */}
+            {trashConfirmPhoto.burst_group && (
+              <p className="trash-confirm-group">
+                ⚠️ 此照片属于连拍组，删除后组内位置会重新编号
+              </p>
+            )}
+            {trashConfirmPhoto.duplicate_group && (
+              <p className="trash-confirm-group">
+                ⚠️ 此照片属于重复组，删除后组内数量会变化
+              </p>
+            )}
+
+            <p className="trash-confirm-warning">
+              此操作不可撤销！文件将移至系统回收站。
+            </p>
+            <div className="trash-confirm-actions">
+              <button
+                ref={trashConfirmBtnRef}
+                className="btn-primary"
+                style={{ background: "#e94560" }}
+                onClick={handlePermanentDelete}
+              >
+                彻底删除{trashConfirmPhotos.length > 1 ? ` (${trashConfirmPhotos.length} 张)` : ""}
+              </button>
+              <button
+                className="btn-cancel"
+                onClick={() => { setTrashConfirmPhotos([]); setTrashConfirmIndex(0); }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Analysis Summary Modal — shown after analysis completes */}
       {showSummary && aiSummary && (

@@ -10,7 +10,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import FullsizePreview from "./FullsizePreview";
 import BurstFilmstrip from "./BurstFilmstrip";
 import { fetchPhotoDetail } from "../api/photoApi";
-import type { PhotoDetailResponse, RawJpegPairMember, ZoomMode } from "../../types";
+import type { PhotoDetailResponse, PhotoFilterMode, RawJpegPairMember, ZoomMode } from "../../types";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,9 +24,19 @@ interface DetailPanelProps {
   refreshKey: number;
   /** Called after a burst group action so the parent can refresh grid & counts. */
   onBurstAction?: () => void;
+  /** Current photo filter mode — controls trash vs normal buttons. */
+  filterMode?: PhotoFilterMode;
+  /** Called to trigger moving a photo to trash (parent handles API + advance). */
+  onTrashRequest?: (imageId: string) => void;
+  /** Called to trigger restoring a photo (parent handles API + advance). */
+  onRestoreRequest?: (imageId: string) => void;
+  /** Called to trigger permanent delete confirmation dialog (parent shows dialog). */
+  onPermanentDeleteRequest?: (imageId: string) => void;
+  /** When true, all action buttons are disabled (e.g. during multi-select). */
+  actionsDisabled?: boolean;
 }
 
-const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", refreshKey, onBurstAction }) => {
+const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", refreshKey, onBurstAction, filterMode, onTrashRequest, onRestoreRequest, onPermanentDeleteRequest, actionsDisabled }) => {
   const [detail, setDetail] = useState<PhotoDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +198,42 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
           <span className="detail-value detail-id" title={detail?.image_id}>{detail?.image_id}</span>
         </div>
       </div>
+
+      {/* Trash/Restore action buttons */}
+      {imageId && filterMode === "trash" ? (
+        <div className="detail-actions">
+          <button
+            className="btn-small"
+            style={{ background: "#1dd1a1", color: "#111", width: "100%", marginBottom: 6, opacity: actionsDisabled ? 0.4 : 1 }}
+            onClick={() => onRestoreRequest?.(imageId)}
+            disabled={actionsDisabled}
+          >
+            ↩️ 还原照片
+          </button>
+          <button
+            className="btn-small"
+            style={{ background: "#e94560", color: "#fff", width: "100%", opacity: actionsDisabled ? 0.4 : 1 }}
+            onClick={() => onPermanentDeleteRequest?.(imageId)}
+            disabled={actionsDisabled}
+          >
+            🔥 彻底删除
+          </button>
+        </div>
+      ) : (
+        imageId && filterMode !== "trash" && (
+          <div className="detail-actions">
+            <button
+              className="btn-small btn-trash"
+              style={{ opacity: actionsDisabled ? 0.4 : 1 }}
+              onClick={() => onTrashRequest?.(imageId)}
+              disabled={actionsDisabled}
+              title={actionsDisabled ? "多选模式下不可用" : "移到回收站 (Ctrl+Delete)"}
+            >
+              🗑️ 移到回收站
+            </button>
+          </div>
+        )
+      )}
 
       {/* Burst group filmstrip */}
       {detail?.burst_group && (

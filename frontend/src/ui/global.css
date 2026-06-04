@@ -2654,3 +2654,176 @@ body {
   z-index: 200;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+
+/* ───────────────────────────────────────────────
+   Trash Confirm Dialog (Permanent Delete)
+   ─────────────────────────────────────────────── */
+
+.trash-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200000;
+  animation: ai-summary-fade-in 0.25s ease;
+}
+
+.trash-confirm-dialog {
+  background: #1e1e2e;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 28px 32px;
+  min-width: 420px;
+  max-width: 520px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+  animation: ai-summary-scale-in 0.3s ease;
+}
+
+.trash-confirm-dialog h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+  color: #e0e0e0;
+}
+
+.trash-confirm-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.trash-confirm-thumb {
+  width: 100px;
+  height: 100px;
+  border-radius: 8px;
+  object-fit: contain;
+  border: 1px solid #333;
+  background-color: #0a0a14;
+}
+
+.trash-confirm-dual {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.trash-confirm-name {
+  font-size: 14px;
+  color: #c0c0c0;
+  word-break: break-all;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.trash-confirm-count {
+  font-size: 14px;
+  color: #888;
+  font-weight: 400;
+}
+
+.trash-confirm-position {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.trash-confirm-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.trash-confirm-arrow {
+  background: transparent;
+  border: 1px solid #444;
+  color: #aaa;
+  font-size: 16px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.trash-confirm-arrow:hover {
+  background: #333;
+  color: #fff;
+  border-color: #666;
+}
+
+.trash-confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.trash-confirm-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #e94560;
+}
+
+.trash-confirm-group {
+  font-size: 12px;
+  color: #f0a050;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.trash-confirm-warning {
+  font-size: 13px;
+  color: #e94560;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.trash-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ───────────────────────────────────────────────
+   Detail Panel Action Buttons
+   ─────────────────────────────────────────────── */
+
+.detail-actions {
+  padding: 12px 16px;
+  border-top: 1px solid #333;
+}
+
+.btn-trash {
+  width: 100%;
+  background: transparent;
+  color: #888;
+  border: 1px solid #444;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.btn-trash:hover {
+  background: rgba(233, 69, 96, 0.1);
+  color: #e94560;
+  border-color: #e94560;
+}
+
+/* ───────────────────────────────────────────────
+   Status Overlay — Trash variant
+   ─────────────────────────────────────────────── */
+
+.status-overlay--trash {
+  background: rgba(50, 50, 50, 0.85);
+  color: #ccc;
+}

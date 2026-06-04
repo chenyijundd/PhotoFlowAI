@@ -51,6 +51,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   exportProgress: (exportId) => ipcRenderer.invoke("export-progress", exportId),
   exportCancel: (exportId) => ipcRenderer.invoke("export-cancel", exportId),
   exportSummary: (exportId) => ipcRenderer.invoke("export-summary", exportId),
+  // Trash / Photo Deletion
+  trashPhoto: (imageId) => ipcRenderer.invoke("trash-photo", imageId),
+  restorePhoto: (imageId) => ipcRenderer.invoke("restore-photo", imageId),
+  batchTrash: (photoIds) => ipcRenderer.invoke("batch-trash", photoIds),
+  batchRestore: (photoIds) => ipcRenderer.invoke("batch-restore", photoIds),
+  permanentDeletePhoto: (imageId, includePaired) => ipcRenderer.invoke("permanent-delete-photo", imageId, includePaired),
+  getTrashedPhotos: (limit, offset) => ipcRenderer.invoke("get-trashed-photos", limit, offset),
+  getTrashedCount: () => ipcRenderer.invoke("get-trashed-count"),
+  // Menu
   onMenuImport: (callback) => {
     const handler = () => callback();
     ipcRenderer.on("menu-import", handler);

@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, BurstCountResponse, BurstGroupsResponse, BestCountResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, EyeClosedCountResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse, AnalyzeStreamCallbacks, AnalyzeStepStartData, AnalyzeProgressData, AnalyzeStepCompleteData, AnalyzeTaskCompleteData, CullStreamCallbacks } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, BurstCountResponse, BurstGroupsResponse, BestCountResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, EyeClosedCountResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse, TrashResponse, PermanentDeleteResponse, AnalyzeStreamCallbacks, AnalyzeStepStartData, AnalyzeProgressData, AnalyzeStepCompleteData, AnalyzeTaskCompleteData, CullStreamCallbacks } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -761,6 +761,108 @@ export async function cancelAnalyze(taskId: string): Promise<{ status: string }>
 export async function cancelCull(taskId: string): Promise<{ status: string }> {
   const url = `${BACKEND_URL}/api/photos/cull-cancel/${taskId}`;
   const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+// ---- Trash / Photo Deletion ----
+
+/** Move a photo to trash (soft delete). */
+export async function trashPhoto(imageId: string): Promise<TrashResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.trashPhoto(imageId);
+  }
+  const url = `${BACKEND_URL}/api/photo/${encodeURIComponent(imageId)}/trash`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Restore a photo from trash. */
+export async function restorePhoto(imageId: string): Promise<TrashResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.restorePhoto(imageId);
+  }
+  const url = `${BACKEND_URL}/api/photo/${encodeURIComponent(imageId)}/restore`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Batch move photos to trash. */
+export async function batchTrash(photoIds: string[]): Promise<BatchUpdateResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.batchTrash(photoIds);
+  }
+  const url = `${BACKEND_URL}/api/photos/batch-trash`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds }),
+  });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Batch restore photos from trash. */
+export async function batchRestore(photoIds: string[]): Promise<BatchUpdateResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.batchRestore(photoIds);
+  }
+  const url = `${BACKEND_URL}/api/photos/batch-restore`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds }),
+  });
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Permanently delete a photo from trash (moves files to system recycle bin). */
+export async function permanentDeletePhoto(
+  imageId: string,
+  includePaired: boolean = true,
+): Promise<PermanentDeleteResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.permanentDeletePhoto(imageId, includePaired);
+  }
+  const url = `${BACKEND_URL}/api/photo/${encodeURIComponent(imageId)}/permanent?include_paired=${includePaired}`;
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Fetch trashed photos with pagination. */
+export async function fetchTrashedPhotos(
+  limit: number = 100,
+  offset: number = 0,
+): Promise<GetPhotosResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.getTrashedPhotos(limit, offset);
+  }
+  const url = `${BACKEND_URL}/api/photos/trashed?limit=${limit}&offset=${offset}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+  return res.json();
+}
+
+/** Fetch trashed photo count. */
+export async function fetchTrashedCount(): Promise<{ count: number }> {
+  if (window.electronAPI) {
+    return window.electronAPI.getTrashedCount();
+  }
+  const url = `${BACKEND_URL}/api/photos/trashed/count`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }

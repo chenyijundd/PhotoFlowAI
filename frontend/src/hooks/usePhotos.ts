@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { PhotoInfo, PhotoFilterMode, AICategory } from "../../types";
-import { fetchPhotos, fetchStarredPhotos, fetchRejectedPhotos, fetchUnprocessedPhotos, fetchBlurPhotos, fetchDuplicatePhotos, fetchBurstPhotosList, fetchBestPhotosList, fetchClosedEyePhotos } from "../api/photoApi";
+import { fetchPhotos, fetchStarredPhotos, fetchRejectedPhotos, fetchUnprocessedPhotos, fetchBlurPhotos, fetchDuplicatePhotos, fetchBurstPhotosList, fetchBestPhotosList, fetchClosedEyePhotos, fetchTrashedPhotos } from "../api/photoApi";
 
 export interface UsePhotosResult {
   photos: PhotoInfo[];
@@ -70,7 +70,9 @@ export function usePhotos(filterMode: PhotoFilterMode = "all", aiCategory: AICat
             ? await fetchStarredPhotos(PAGE_SIZE, currentOffset)
             : currentFilter === "rejected"
               ? await fetchRejectedPhotos(PAGE_SIZE, currentOffset)
-              : await fetchUnprocessedPhotos(PAGE_SIZE, currentOffset);
+              : currentFilter === "trash"
+                ? await fetchTrashedPhotos(PAGE_SIZE, currentOffset)
+                : await fetchUnprocessedPhotos(PAGE_SIZE, currentOffset);
       }
 
       setTotal(data.total);

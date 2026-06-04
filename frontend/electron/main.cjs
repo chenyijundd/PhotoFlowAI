@@ -573,6 +573,75 @@ ipcMain.handle("import-photos", async (_event, dirPath) => {
   return response.json();
 });
 
+// ---- Trash / Photo Deletion IPC Handlers ----
+
+ipcMain.handle("trash-photo", async (_event, imageId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photo/${encodeURIComponent(imageId)}/trash`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) {
+    const detail = await response.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+ipcMain.handle("restore-photo", async (_event, imageId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photo/${encodeURIComponent(imageId)}/restore`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) {
+    const detail = await response.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+ipcMain.handle("batch-trash", async (_event, photoIds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/batch-trash`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds }),
+  });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("batch-restore", async (_event, photoIds) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/batch-restore`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo_ids: photoIds }),
+  });
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("permanent-delete-photo", async (_event, imageId, includePaired) => {
+  const paired = includePaired !== false ? "true" : "false";
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photo/${encodeURIComponent(imageId)}/permanent?include_paired=${paired}`;
+  const response = await fetch(url, { method: "DELETE" });
+  if (!response.ok) {
+    const detail = await response.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
+ipcMain.handle("get-trashed-photos", async (_event, limit = 100, offset = 0) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/trashed?limit=${limit}&offset=${offset}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("get-trashed-count", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/trashed/count`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
 // ---- App Menu ----
 
 function buildAppMenu() {

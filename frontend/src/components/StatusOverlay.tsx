@@ -8,7 +8,7 @@
 
 import React from "react";
 
-export type StatusType = "star" | "reject" | "ai_accept" | "hint" | "undo" | "redo" | null;
+export type StatusType = "star" | "reject" | "ai_accept" | "hint" | "undo" | "redo" | "trash" | null;
 
 interface StatusOverlayProps {
   type: StatusType;
@@ -24,6 +24,7 @@ const StatusOverlay: React.FC<StatusOverlayProps> = ({ type, message }) => {
     type === "ai_accept" ? "AI ACCEPTED" :
     type === "undo" ? (message || "↩ 已撤销") :
     type === "redo" ? (message || "↪ 已重做") :
+    type === "trash" ? (message || "🗑️ 已移至回收站") :
     message || "";
 
   return (

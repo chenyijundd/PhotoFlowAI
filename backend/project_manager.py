@@ -268,6 +268,10 @@ class ProjectManager:
                 "The file may have been moved or deleted."
             )
 
+        # Run schema migrations (e.g. add missing columns from newer versions)
+        from database.connection import init_database as init_project_db
+        init_project_db(project.db_path)
+
         with self._lock:
             self._current_project = project
 

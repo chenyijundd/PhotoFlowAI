@@ -26,6 +26,25 @@ export interface PhotoInfo {
   is_best_in_burst: number;
   is_best_in_duplicate: number;
   raw_jpeg_pair_id: string | null;
+  deleted_at: string | null;
+}
+
+/** Response from POST /api/photo/{id}/trash or /restore. */
+export interface TrashResponse {
+  status: string;
+  image_id: string;
+  deleted?: boolean;
+  restored?: boolean;
+  message?: string;
+}
+
+/** Response from DELETE /api/photo/{id}/permanent. */
+export interface PermanentDeleteResponse {
+  status: string;
+  deleted_ids: string[];
+  files_trashed: number;
+  thumbnails_removed: number;
+  error?: string | null;
 }
 
 /** Paginated response from GET /api/photos. */
@@ -105,6 +124,7 @@ export interface CountsResponse {
   starred: number;
   unprocessed: number;
   rejected: number;
+  trash_count: number;
   blur_count: number;
   closed_eye_count: number;
   duplicate_count: number;
@@ -166,7 +186,7 @@ export interface GetPhotosByGroupResponse {
 }
 
 /** Filter mode for the photo grid. */
-export type PhotoFilterMode = "all" | "starred" | "unprocessed" | "rejected";
+export type PhotoFilterMode = "all" | "starred" | "unprocessed" | "rejected" | "trash";
 
 /** AI category filter for the photo grid (applied on top of filterMode).
  *  Order matches the detection cascade: closed_eye → blur → burst → duplicate → best */
@@ -418,6 +438,14 @@ export interface ElectronAPI {
   exportProgress: (exportId: string) => Promise<ExportProgressResponse>;
   exportCancel: (exportId: string) => Promise<{ status: string }>;
   exportSummary: (exportId: string) => Promise<ExportSummaryResponse>;
+  // Trash / Photo Deletion
+  trashPhoto: (imageId: string) => Promise<TrashResponse>;
+  restorePhoto: (imageId: string) => Promise<TrashResponse>;
+  batchTrash: (photoIds: string[]) => Promise<BatchUpdateResponse>;
+  batchRestore: (photoIds: string[]) => Promise<BatchUpdateResponse>;
+  permanentDeletePhoto: (imageId: string, includePaired?: boolean) => Promise<PermanentDeleteResponse>;
+  getTrashedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
+  getTrashedCount: () => Promise<{ count: number }>;
 }
 
 /** Augment the global Window interface. */

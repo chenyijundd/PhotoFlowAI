@@ -1,0 +1,8 @@
+Collecting send2trash
+  Downloading send2trash-2.1.0-py3-none-any.whl.metadata (4.1 kB)
+Downloading send2trash-2.1.0-py3-none-any.whl (17 kB)
+Installing collected packages: send2trash
+Successfully installed send2trash-2.1.0
+
+[notice] A new release of pip is available: 26.1.1 -> 26.1.2
+[notice] To update, run: python.exe -m pip install --upgrade pip

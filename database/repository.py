@@ -136,7 +136,8 @@ class PhotoRepository:
         """Retrieve all photo records ordered by created_time (拍摄时间)."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos ORDER BY created_time"
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE deleted_at IS NULL ORDER BY created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -149,6 +150,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos WHERE star_rating = 1 "
+                "AND deleted_at IS NULL "
                 "ORDER BY manually_operated_at DESC NULLS LAST, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -158,7 +160,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_blur = 1 "
-                "ORDER BY blur_score DESC, created_time"
+                "AND deleted_at IS NULL ORDER BY blur_score DESC, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -166,7 +168,7 @@ class PhotoRepository:
         """Return the count of photos with star_rating == 1."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE star_rating = 1"
+                "SELECT COUNT(*) FROM photos WHERE star_rating = 1 AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -317,6 +319,7 @@ class PhotoRepository:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
                 "WHERE is_rejected = 1 AND (star_rating IS NULL OR star_rating != 1) "
+                "AND deleted_at IS NULL "
                 "ORDER BY manually_operated_at DESC NULLS LAST, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -326,7 +329,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_duplicate = 1 "
-                "ORDER BY duplicate_group, file_name"
+                "AND deleted_at IS NULL ORDER BY duplicate_group, file_name"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -334,7 +337,7 @@ class PhotoRepository:
         """Return the count of photos with is_duplicate == 1."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_duplicate = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_duplicate = 1 AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -344,6 +347,7 @@ class PhotoRepository:
             rows = conn.execute(
                 "SELECT duplicate_group, COUNT(*) as cnt, GROUP_CONCAT(image_id) as members "
                 "FROM photos WHERE is_duplicate = 1 AND duplicate_group IS NOT NULL "
+                "AND deleted_at IS NULL "
                 "GROUP BY duplicate_group ORDER BY duplicate_group"
             ).fetchall()
             return [dict(r) for r in rows]
@@ -352,7 +356,8 @@ class PhotoRepository:
         """Retrieve all photos in a specific duplicate group, ordered by file_name."""
         with self._get_conn() as conn:
             rows = conn.execute(
-                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE duplicate_group = ? ORDER BY file_name",
+                f"SELECT {PhotoRecord.column_names()} FROM photos WHERE duplicate_group = ? "
+                "AND deleted_at IS NULL ORDER BY file_name",
                 (group_id,),
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -361,7 +366,7 @@ class PhotoRepository:
         """Return the count of photos with is_blur == 1."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_blur = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_blur = 1 AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -373,7 +378,8 @@ class PhotoRepository:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM photos "
-                "WHERE is_rejected = 1 AND (star_rating IS NULL OR star_rating != 1)"
+                "WHERE is_rejected = 1 AND (star_rating IS NULL OR star_rating != 1) "
+                "AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -424,7 +430,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
-                "WHERE burst_group = ? ORDER BY burst_position",
+                "WHERE burst_group = ? AND deleted_at IS NULL ORDER BY burst_position",
                 (group_id,),
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -434,7 +440,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT DISTINCT burst_group FROM photos "
-                "WHERE burst_group IS NOT NULL ORDER BY burst_group"
+                "WHERE burst_group IS NOT NULL AND deleted_at IS NULL ORDER BY burst_group"
             ).fetchall()
             return [r[0] for r in rows]
 
@@ -443,7 +449,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT COUNT(DISTINCT burst_group) FROM photos "
-                "WHERE burst_group IS NOT NULL"
+                "WHERE burst_group IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -451,7 +457,7 @@ class PhotoRepository:
         """Return the number of photos in a specific burst group."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE burst_group = ?",
+                "SELECT COUNT(*) FROM photos WHERE burst_group = ? AND deleted_at IS NULL",
                 (group_id,),
             ).fetchone()
             return row[0] if row else 0
@@ -481,7 +487,8 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
-                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1 "
+                "WHERE (is_best_in_burst = 1 OR is_best_in_duplicate = 1) "
+                "AND deleted_at IS NULL "
                 "ORDER BY is_best_in_burst DESC, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -491,7 +498,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM photos "
-                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1"
+                "WHERE (is_best_in_burst = 1 OR is_best_in_duplicate = 1) AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -504,6 +511,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos WHERE is_closed_eye = 1 "
+                "AND deleted_at IS NULL "
                 "ORDER BY eye_score ASC, created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -512,7 +520,7 @@ class PhotoRepository:
         """Return the count of photos with is_closed_eye == 1."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1 AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -524,7 +532,7 @@ class PhotoRepository:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
                 "WHERE (star_rating IS NULL OR star_rating != 1) "
-                "AND is_rejected != 1 ORDER BY created_time"
+                "AND is_rejected != 1 AND deleted_at IS NULL ORDER BY created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -534,7 +542,7 @@ class PhotoRepository:
             row = conn.execute(
                 "SELECT COUNT(*) FROM photos "
                 "WHERE (star_rating IS NULL OR star_rating != 1) "
-                "AND is_rejected != 1"
+                "AND is_rejected != 1 AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -544,7 +552,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
-                "WHERE analyzed_at IS NULL ORDER BY created_time"
+                "WHERE analyzed_at IS NULL AND deleted_at IS NULL ORDER BY created_time"
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
 
@@ -552,7 +560,7 @@ class PhotoRepository:
         """Return the count of unanalyzed photos."""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NULL"
+                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NULL AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -570,10 +578,12 @@ class PhotoRepository:
             stars = conn.execute(
                 "UPDATE photos SET star_rating = 0"
                 " WHERE star_rating >= 1 AND manually_operated_at IS NULL"
+                " AND deleted_at IS NULL"
             ).rowcount
             rejects = conn.execute(
                 "UPDATE photos SET is_rejected = 0"
                 " WHERE is_rejected >= 1 AND manually_operated_at IS NULL"
+                " AND deleted_at IS NULL"
             ).rowcount
             return stars, rejects
 
@@ -588,44 +598,45 @@ class PhotoRepository:
         """
         with self._get_conn() as conn:
             total = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NOT NULL"
+                "SELECT COUNT(*) FROM photos WHERE analyzed_at IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()[0]
 
             eye = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_closed_eye = 1 AND deleted_at IS NULL"
             ).fetchone()[0]
 
             blur = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_blur = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_blur = 1 AND deleted_at IS NULL"
             ).fetchone()[0]
 
             burst_groups = conn.execute(
                 "SELECT COUNT(DISTINCT burst_group) FROM photos "
-                "WHERE burst_group IS NOT NULL"
+                "WHERE burst_group IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()[0]
 
             burst_photos = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE burst_group IS NOT NULL"
+                "SELECT COUNT(*) FROM photos WHERE burst_group IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()[0]
 
             dup_groups = conn.execute(
                 "SELECT COUNT(DISTINCT duplicate_group) FROM photos "
-                "WHERE duplicate_group IS NOT NULL"
+                "WHERE duplicate_group IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()[0]
 
             dup_photos = conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE is_duplicate = 1"
+                "SELECT COUNT(*) FROM photos WHERE is_duplicate = 1 AND deleted_at IS NULL"
             ).fetchone()[0]
 
             best = conn.execute(
                 "SELECT COUNT(*) FROM photos "
-                "WHERE is_best_in_burst = 1 OR is_best_in_duplicate = 1"
+                "WHERE (is_best_in_burst = 1 OR is_best_in_duplicate = 1) AND deleted_at IS NULL"
             ).fetchone()[0]
 
             # Clean = analysed photos with NO defects
             clean = conn.execute(
                 "SELECT COUNT(*) FROM photos "
                 "WHERE analyzed_at IS NOT NULL "
+                "AND deleted_at IS NULL "
                 "AND is_closed_eye = 0 "
                 "AND is_blur = 0 "
                 "AND burst_group IS NULL "
@@ -683,7 +694,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             rows = conn.execute(
                 f"SELECT {PhotoRecord.column_names()} FROM photos "
-                "WHERE raw_jpeg_pair_id = ? ORDER BY file_name",
+                "WHERE raw_jpeg_pair_id = ? AND deleted_at IS NULL ORDER BY file_name",
                 (pair_id,),
             ).fetchall()
             return [PhotoRecord.from_row(r) for r in rows]
@@ -693,7 +704,7 @@ class PhotoRepository:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT COUNT(DISTINCT raw_jpeg_pair_id) FROM photos "
-                "WHERE raw_jpeg_pair_id IS NOT NULL"
+                "WHERE raw_jpeg_pair_id IS NOT NULL AND deleted_at IS NULL"
             ).fetchone()
             return row[0] if row else 0
 
@@ -707,7 +718,8 @@ class PhotoRepository:
             return []
         with self._get_conn() as conn:
             rows = conn.execute(
-                "SELECT image_id FROM photos WHERE raw_jpeg_pair_id = ? AND image_id != ?",
+                "SELECT image_id FROM photos "
+                "WHERE raw_jpeg_pair_id = ? AND image_id != ? AND deleted_at IS NULL",
                 (photo.raw_jpeg_pair_id, image_id),
             ).fetchall()
             return [r[0] for r in rows]
@@ -732,6 +744,95 @@ class PhotoRepository:
                 (scores_json, now, image_id),
             )
             return cursor.rowcount > 0
+
+    # ---- Photo Trash / Delete methods ----
+
+    def soft_delete_photo(self, image_id: str) -> bool:
+        """Move a photo to trash by setting deleted_at to now."""
+        return self._update_fields(
+            image_id,
+            deleted_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def soft_delete_photos_batch(self, image_ids: list[str]) -> int:
+        """Batch move photos to trash. Returns count of updated rows."""
+        if not image_ids:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        updated = 0
+        with self._get_conn() as conn:
+            for img_id in image_ids:
+                cursor = conn.execute(
+                    "UPDATE photos SET deleted_at = ?, updated_at = ? WHERE image_id = ?",
+                    (now, now, img_id),
+                )
+                updated += cursor.rowcount
+        return updated
+
+    def restore_photo(self, image_id: str) -> bool:
+        """Restore a photo from trash by clearing deleted_at."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "UPDATE photos SET deleted_at = NULL, updated_at = ? WHERE image_id = ?",
+                (now, image_id),
+            )
+            return cursor.rowcount > 0
+
+    def restore_photos_batch(self, image_ids: list[str]) -> int:
+        """Batch restore photos from trash. Returns count of updated rows."""
+        if not image_ids:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        updated = 0
+        with self._get_conn() as conn:
+            for img_id in image_ids:
+                cursor = conn.execute(
+                    "UPDATE photos SET deleted_at = NULL, updated_at = ? WHERE image_id = ?",
+                    (now, img_id),
+                )
+                updated += cursor.rowcount
+        return updated
+
+    def get_trashed_photos(self) -> list[PhotoRecord]:
+        """Retrieve all soft-deleted photos, ordered by created_time (EXIF)."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {PhotoRecord.column_names()} FROM photos "
+                "WHERE deleted_at IS NOT NULL ORDER BY created_time"
+            ).fetchall()
+            return [PhotoRecord.from_row(r) for r in rows]
+
+    def get_trashed_count(self) -> int:
+        """Return the count of soft-deleted photos."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM photos WHERE deleted_at IS NOT NULL"
+            ).fetchone()
+            return row[0] if row else 0
+
+    def get_expired_trash_ids(self, days: int = 30) -> list[str]:
+        """Return image_ids of photos that have been in trash for more than *days*."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT image_id FROM photos WHERE deleted_at IS NOT NULL "
+                "AND deleted_at < datetime('now', ? || ' days')",
+                (f"-{days}",),
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    def delete_photos_batch(self, image_ids: list[str]) -> int:
+        """Batch delete multiple photo records. Returns count of deleted rows."""
+        if not image_ids:
+            return 0
+        total = 0
+        with self._get_conn() as conn:
+            for img_id in image_ids:
+                cursor = conn.execute(
+                    "DELETE FROM photos WHERE image_id = ?", (img_id,)
+                )
+                total += cursor.rowcount
+        return total
 
     def _update_fields(self, image_id: str, **fields) -> bool:
         """Generic field updater. Builds SET clause from keyword arguments.

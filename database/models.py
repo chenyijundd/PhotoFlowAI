@@ -40,6 +40,7 @@ PHOTO_COLUMNS = (
     "analyzed_at",
     "created_at",
     "updated_at",
+    "deleted_at",
 )
 
 
@@ -74,6 +75,7 @@ class PhotoRecord:
     analyzed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    deleted_at: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to a serializable dictionary, omitting None values."""

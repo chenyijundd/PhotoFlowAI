@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS photos (
     analyzed_at TEXT DEFAULT NULL,
 
     created_at TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    deleted_at TEXT DEFAULT NULL
 );
 """
 
@@ -275,5 +276,11 @@ def init_database(db_path: Optional[str] = None) -> str:
                 if "patch_scores" not in cols:
                     conn.execute(
                         "ALTER TABLE photos ADD COLUMN patch_scores TEXT DEFAULT NULL"
+                    )
+
+                # Migration: add deleted_at column if missing (v1.5 — photo trash)
+                if "deleted_at" not in cols:
+                    conn.execute(
+                        "ALTER TABLE photos ADD COLUMN deleted_at TEXT DEFAULT NULL"
                     )
     return path

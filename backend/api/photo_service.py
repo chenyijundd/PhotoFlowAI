@@ -370,11 +370,15 @@ async def get_all_counts():
                 flagged_ids.add(p.image_id)
         clean_count = all_count - len(flagged_ids)
 
+        # ---- Trash count (separate query since all_photos only returns non-deleted) ----
+        trash_count = repo.get_trashed_count()
+
         return {
             "all": all_count,
             "starred": starred,
             "unprocessed": unprocessed,
             "rejected": rejected,
+            "trash_count": trash_count,
             "blur_count": blur_count,
             "closed_eye_count": closed_eye_count,
             "duplicate_count": duplicate_count,
