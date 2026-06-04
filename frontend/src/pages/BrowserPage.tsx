@@ -654,6 +654,7 @@ const BrowserPage: React.FC<{
     (e: KeyboardEvent): boolean => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (selectionCountRef.current >= 2) return false; // multi-select active
 
       if (e.key === "c" || e.key === "C") {
         const photo = selectedPhotoRef.current;
@@ -682,6 +683,7 @@ const BrowserPage: React.FC<{
     (e: KeyboardEvent): boolean => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (selectionCountRef.current >= 2) return false; // multi-select active
 
       if (e.key === "b" || e.key === "B") {
         const photo = selectedPhotoRef.current;
@@ -1541,8 +1543,8 @@ const BrowserPage: React.FC<{
                     🗑️ 全部废片
                   </button>
                   <button
-                    className="btn-small"
-                    style={{ background: "transparent", color: "#888", border: "1px solid #555" }}
+                    className="btn-trash"
+                    style={{ width: "auto" }}
                     onClick={async () => {
                       const ids = Array.from(selectedIds);
                       clearSelection(); // exit selection mode immediately

@@ -24,6 +24,8 @@ interface BurstFilmstripProps {
   burstGroupId: string;
   /** Called after any burst action completes, so the parent can refresh the grid & counts. */
   onAction?: () => void;
+  /** When true, all interactive elements are disabled (e.g. during multi-select). */
+  actionsDisabled?: boolean;
 }
 
 function thumbUrl(photo: PhotoInfo): string {
@@ -37,6 +39,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
   currentImageId,
   burstGroupId,
   onAction,
+  actionsDisabled = false,
 }) => {
   const [photos, setPhotos] = useState<PhotoInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,6 +84,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
   // [ and ] keys for burst-group navigation
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (actionsDisabled) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -99,7 +103,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
         selectPhoto(photos[nextIdx].image_id);
       }
     },
-    [currentImageId, photos, selectPhoto]
+    [currentImageId, photos, selectPhoto, actionsDisabled]
   );
 
   useEffect(() => {
@@ -128,7 +132,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
           className="burst-filmstrip-compare-btn"
           onClick={() => enterBurstCompareMode(burstGroupId)}
           title="多图对比 (B)"
-          disabled={isBurstCompareMode}
+          disabled={isBurstCompareMode || actionsDisabled}
         >
           🔍
         </button>
@@ -143,9 +147,10 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
               data-burst-id={photo.image_id}
               className={`burst-filmstrip-thumb${
                 isActive ? " burst-filmstrip-thumb--active" : ""
-              }`}
-              onClick={() => selectPhoto(photo.image_id)}
+              }${actionsDisabled ? " burst-filmstrip-thumb--disabled" : ""}`}
+              onClick={actionsDisabled ? undefined : () => selectPhoto(photo.image_id)}
               title={photo.file_name}
+              style={actionsDisabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}
             >
               {src ? (
                 <img src={src} alt={photo.file_name} loading="lazy" />
@@ -175,6 +180,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
             } catch { /* ignore */ }
           }}
           title="保留推荐照片，拒绝其余"
+          disabled={actionsDisabled}
         >
           保留推荐
         </button>
@@ -188,6 +194,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
             } catch { /* ignore */ }
           }}
           title="组内全部加星"
+          disabled={actionsDisabled}
         >
           全保留
         </button>
@@ -201,6 +208,7 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
             } catch { /* ignore */ }
           }}
           title="组内全部拒绝"
+          disabled={actionsDisabled}
         >
           全拒绝
         </button>

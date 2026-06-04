@@ -241,6 +241,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
           currentImageId={imageId}
           burstGroupId={detail.burst_group}
           onAction={onBurstAction}
+          actionsDisabled={actionsDisabled}
         />
       )}
     </aside>
