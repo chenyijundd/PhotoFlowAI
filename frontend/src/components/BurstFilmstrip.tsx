@@ -66,17 +66,22 @@ const BurstFilmstrip: React.FC<BurstFilmstripProps> = ({
     loadPhotos();
   }, [loadPhotos]);
 
-  // Scroll the current photo into view when it changes
+  // Scroll the current photo into view (horizontal only — use the strip's
+  // own scrollLeft so we never affect ancestor scroll positions like the
+  // detail panel).
   useEffect(() => {
     if (!stripRef.current) return;
     const activeThumb = stripRef.current.querySelector(
       `[data-burst-id="${currentImageId}"]`
     ) as HTMLElement | null;
-    if (activeThumb) {
-      activeThumb.scrollIntoView({
+    if (activeThumb && stripRef.current) {
+      const strip = stripRef.current;
+      const thumbLeft = activeThumb.offsetLeft;
+      const thumbWidth = activeThumb.offsetWidth;
+      const stripWidth = strip.clientWidth;
+      strip.scrollTo({
+        left: Math.max(0, thumbLeft - (stripWidth - thumbWidth) / 2),
         behavior: "smooth",
-        block: "nearest",
-        inline: "center",
       });
     }
   }, [currentImageId, photos]);

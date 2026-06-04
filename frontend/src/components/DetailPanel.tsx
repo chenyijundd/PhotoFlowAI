@@ -6,7 +6,7 @@
  * Supports fit / zoom100 preview modes.
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import FullsizePreview from "./FullsizePreview";
 import BurstFilmstrip from "./BurstFilmstrip";
 import { fetchPhotoDetail } from "../api/photoApi";
@@ -16,6 +16,24 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Format ISO-8601 date string to YYYY-MM-DD hh:mm:ss. */
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "未知";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso; // fallback to raw value
+    const yyyy = d.getFullYear();
+    const MM = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${yyyy}-${MM}-${dd} ${hh}:${mm}:${ss}`;
+  } catch {
+    return iso;
+  }
 }
 
 interface DetailPanelProps {
@@ -40,6 +58,14 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
   const [detail, setDetail] = useState<PhotoDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+
+  // Scroll detail panel to top whenever the selected photo changes
+  useEffect(() => {
+    if (panelRef.current) {
+      panelRef.current.scrollTop = 0;
+    }
+  }, [imageId]);
 
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true);
@@ -105,7 +131,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
 
   // ---- Content state ----
   return (
-    <aside className="detail-panel">
+    <aside className="detail-panel" ref={panelRef}>
       {/* Full-size preview */}
       <FullsizePreview
         imageId={imageId}
@@ -129,7 +155,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
         </div>
         <div className="detail-field">
           <span className="detail-label">创建时间</span>
-          <span className="detail-value">{detail?.created_time || "未知"}</span>
+          <span className="detail-value">{formatDateTime(detail?.created_time)}</span>
         </div>
         <div className="detail-field">
           <span className="detail-label">星级</span>
@@ -193,10 +219,6 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ imageId, zoomMode = "fit", re
             </span>
           </div>
         )}
-        <div className="detail-field">
-          <span className="detail-label">ID</span>
-          <span className="detail-value detail-id" title={detail?.image_id}>{detail?.image_id}</span>
-        </div>
       </div>
 
       {/* Trash/Restore action buttons */}

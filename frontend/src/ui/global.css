@@ -894,12 +894,6 @@ body {
   word-break: break-all;
 }
 
-.detail-id {
-  font-family: monospace;
-  font-size: 12px;
-  color: #7a7a9a;
-}
-
 /* ---- RAW+JPEG Pair Members ---- */
 
 .rawpair-member {
