@@ -49,36 +49,19 @@ _lock = threading.Lock()
 
 
 def _process_blur_chunk(
-    chunk: list[tuple[str, str, str | None, float | None]],
+    chunk: list[tuple[str, str, str | None, float | None, float | None, float | None]],
 ) -> list[tuple[str, bool, float, int, str | None, str | None]]:
-    """Process a chunk of photos in a worker process.
-
-    Implements a **3-tier pipeline** (改进建议 §2):
-
-    1. Load or generate the 800 px AI preview.
-    2. Run ``quick_blur_check`` on the preview:
-       - ``"sharp"`` → return immediately (clearly sharp).
-       - ``"blur"``  → return immediately (clearly blurry).
-       - ``"borderline"`` → fall through to tier 3.
-    3. Run full ``calculate_blur_v2`` on the original image.
-
-    On a typical photo set, ~80 % of images are classified at tier 2
-    and never reach the expensive multi-patch analysis.
-
-    Each worker imports its own modules — no shared state between
-    processes.
+    """Process a chunk of photos in a worker process.  (See module docstring.)
 
     Args:
-        chunk: List of ``(image_id, readable_path, preview_path, threshold)``
-            tuples.  *preview_path* may be ``None`` (generated lazily).
+        chunk: List of ``(image_id, readable_path, preview_path,
+            threshold, preview_sharp_threshold, preview_blur_threshold)``.
+            Each threshold may be ``None`` (use module default).
 
     Returns:
         List of ``(image_id, success, final_score, is_blur, error_msg,
-        patch_scores_json)``.  *patch_scores_json* is a compact JSON
-        string (see :func:`build_patch_scores_cache`) for Tier-3 results,
-        or ``None`` for Tier-1/2 results or failures.
+        patch_scores_json)``.
     """
-    # Late imports — worker processes need their own module references
     from backend.ai.blur_detector_v2.detector import (
         calculate_blur_v2 as _calc,
         quick_blur_check,
@@ -89,26 +72,29 @@ def _process_blur_chunk(
     from backend.ai.ai_preview.preview_generator import ensure_preview
 
     results: list[tuple[str, bool, float, int, str | None, str | None]] = []
-    for image_id, readable_path, preview_path, threshold in chunk:
+    for image_id, readable_path, preview_path, threshold, prev_sharp, prev_blur in chunk:
         try:
             # ---- Tier 1: ensure 800 px AI preview ----
             if preview_path is None:
-                # Compute path and generate if missing (first run only)
                 from backend.ai.ai_preview.preview_generator import get_preview_path as _gpp
                 preview_path = _gpp(image_id)
             preview_path = ensure_preview(image_id, readable_path)
 
             # ---- Tier 2: quick Laplacian on 800 px preview ----
-            quick_score, verdict = quick_blur_check(preview_path)
+            quick_score, verdict = quick_blur_check(
+                preview_path,
+                sharp_threshold=prev_sharp,
+                blur_threshold=prev_blur,
+            )
 
+            _ps = prev_sharp if prev_sharp is not None else PREVIEW_SHARP_THRESHOLD
+            _pb = prev_blur if prev_blur is not None else PREVIEW_BLUR_THRESHOLD
             if verdict == "sharp":
-                # Clearly sharp — return a score above the threshold
-                safe_score = max(quick_score, float(PREVIEW_SHARP_THRESHOLD))
+                safe_score = max(quick_score, float(_ps))
                 results.append((image_id, True, safe_score, 0, None, None))
                 continue
             elif verdict == "blur":
-                # Clearly blurry — return a score below the threshold
-                safe_score = min(quick_score, float(PREVIEW_BLUR_THRESHOLD))
+                safe_score = min(quick_score, float(_pb))
                 results.append((image_id, True, safe_score, 1, None, None))
                 continue
 
@@ -130,6 +116,8 @@ def _run_blur_loop_v2(
     photo_ids: list[str],
     threshold: float | None,
     skip_ids: set[str] | None = None,
+    preview_sharp_threshold: float | None = None,
+    preview_blur_threshold: float | None = None,
 ) -> None:
     """Run v2 blur detection in a background thread, updating shared state.
 
@@ -146,6 +134,8 @@ def _run_blur_loop_v2(
         skip_ids: Optional set of image_id values to skip (counted toward
             progress but not actually processed).  Used for closed-eye photos
             that have already been flagged as unfixable.
+        preview_sharp_threshold: Optional override for PREVIEW_SHARP_THRESHOLD.
+        preview_blur_threshold: Optional override for PREVIEW_BLUR_THRESHOLD.
     """
     from database.repository import PhotoRepository
 
@@ -176,7 +166,7 @@ def _run_blur_loop_v2(
         BLUR_THRESHOLD,
     )
 
-    to_process: list[tuple[str, str, str | None, float | None]] = []
+    to_process: list[tuple[str, str, str | None, float | None, float | None, float | None]] = []
     cached_photos: list[tuple[str, str]] = []  # (image_id, patch_scores_json)
     skipped_count = 0
 
@@ -207,7 +197,7 @@ def _run_blur_loop_v2(
         if photo.patch_scores:
             cached_photos.append((image_id, photo.patch_scores))
         else:
-            to_process.append((image_id, photo.readable_path, get_preview_path(image_id), threshold))
+            to_process.append((image_id, photo.readable_path, get_preview_path(image_id), threshold, preview_sharp_threshold, preview_blur_threshold))
 
     # ---- Step A: Re-judge cached photos in main thread (milliseconds each) ----
     if cached_photos:
@@ -364,6 +354,8 @@ def start_blur_detection_v2(
     photo_ids: list[str],
     threshold: float | None = None,
     skip_ids: set[str] | None = None,
+    preview_sharp_threshold: float | None = None,
+    preview_blur_threshold: float | None = None,
 ) -> str:
     """Start v2 blur detection in a background thread. Returns task_id.
 
@@ -371,6 +363,8 @@ def start_blur_detection_v2(
         photo_ids: List of image_id values to process.
         threshold: Optional override for the blur threshold.
         skip_ids: Optional set of image_id values to skip (e.g. closed-eye photos).
+        preview_sharp_threshold: Optional override for PREVIEW_SHARP_THRESHOLD.
+        preview_blur_threshold: Optional override for PREVIEW_BLUR_THRESHOLD.
     """
     task_id = uuid.uuid4().hex[:8]
 
@@ -391,7 +385,7 @@ def start_blur_detection_v2(
 
     t = threading.Thread(
         target=_run_blur_loop_v2,
-        args=(task_id, photo_ids, threshold, skip_ids),
+        args=(task_id, photo_ids, threshold, skip_ids, preview_sharp_threshold, preview_blur_threshold),
         daemon=True,
     )
     t.start()

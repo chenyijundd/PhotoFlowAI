@@ -564,6 +564,39 @@ class PhotoRepository:
             ).fetchone()
             return row[0] if row else 0
 
+    def reset_analysis_results(self) -> dict:
+        """Clear AI analysis fields for all non-manual, non-trashed photos.
+
+        Called when the sensitivity preset is changed — old analysis results
+        computed under a different preset are no longer valid and must be
+        re-computed.  Hand-picked photos (manually_operated_at IS NOT NULL)
+        and trashed photos are always preserved.
+
+        Cleared fields:
+          eye_score, is_closed_eye, blur_score, is_blur, patch_scores,
+          duplicate_group, is_duplicate, is_best_in_duplicate,
+          burst_group, burst_position, is_best_in_burst, analyzed_at
+
+        Returns a dict with per-field reset counts.
+        """
+        counts: dict[str, int] = {}
+        with self._get_conn() as conn:
+            for col in (
+                "eye_score", "is_closed_eye",
+                "blur_score", "is_blur", "patch_scores",
+                "duplicate_group", "is_duplicate", "is_best_in_duplicate",
+                "burst_group", "burst_position", "is_best_in_burst",
+                "analyzed_at",
+            ):
+                cursor = conn.execute(
+                    f"UPDATE photos SET {col} = NULL"
+                    " WHERE manually_operated_at IS NULL"
+                    " AND deleted_at IS NULL"
+                )
+                if cursor.rowcount:
+                    counts[col] = cursor.rowcount
+        return counts
+
     def reset_cull_results(self) -> tuple:
         """Clear non-manual star and reject statuses.
 
@@ -820,6 +853,32 @@ class PhotoRepository:
                 (f"-{days}",),
             ).fetchall()
             return [r[0] for r in rows]
+
+    # ---- Project-level config (sensitivity presets, etc.) ----
+
+    def get_config(self, key: str) -> str | None:
+        """Read a configuration value from the project's config table.
+
+        Returns ``None`` if the key does not exist.
+        """
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM config WHERE key = ?", (key,)
+            ).fetchone()
+            return row["value"] if row else None
+
+    def set_config(self, key: str, value: str) -> bool:
+        """Upsert a configuration key-value pair.
+
+        Returns True if a row was inserted or updated.
+        """
+        with self._get_conn() as conn:
+            before = conn.total_changes
+            conn.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+            return conn.total_changes > before
 
     def delete_photos_batch(self, image_ids: list[str]) -> int:
         """Batch delete multiple photo records. Returns count of deleted rows."""

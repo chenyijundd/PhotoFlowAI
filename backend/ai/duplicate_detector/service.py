@@ -258,12 +258,15 @@ def _run_duplicate_loop(
     task_id: str,
     photo_ids: list[str],
     skip_ids: set[str] | None = None,
+    hamming_prefilter: int | None = None,
+    ssim_threshold: float | None = None,
+    time_window_gap: float | None = None,
 ) -> None:
     """Run duplicate detection in background thread with full optimisation.
 
     Pipeline:
       1. Compute dHash (64-bit int) for every non-skipped photo.
-      2. Split photos into independent time windows (gap > 30 s).
+      2. Split photos into independent time windows.
       3. Within each window:
          a. Multi-index candidate lookup (sub-linear).
          b. Hamming pre-filter (POPCNT) — distance ≤ 10 passes.
@@ -279,6 +282,10 @@ def _run_duplicate_loop(
             blurry, and burst photos per the cascade pipeline.
     """
     from database.repository import PhotoRepository
+
+    _hamming = hamming_prefilter if hamming_prefilter is not None else HAMMING_PREFILTER
+    _ssim = ssim_threshold if ssim_threshold is not None else SSIM_THRESHOLD
+    _time_gap = time_window_gap if time_window_gap is not None else TIME_WINDOW_GAP
 
     repo = PhotoRepository()
 
@@ -365,7 +372,7 @@ def _run_duplicate_loop(
     state["current_file"] = f"按拍摄时间分组 ({n} 张)..."
 
     t_partition = time.time()
-    windows = _split_time_windows(entries)
+    windows = _split_time_windows(entries, gap_seconds=_time_gap)
     logger.info(
         "Duplicate V2: %d photos → %d time window(s) (%.3fs)",
         n, len(windows), time.time() - t_partition,
@@ -419,7 +426,7 @@ def _run_duplicate_loop(
             dist = hamming_distance_int(
                 win_hash_ints[local_i], win_hash_ints[local_j],
             )
-            if dist <= HAMMING_PREFILTER:
+            if dist <= _hamming:
                 ssim_candidates.append((local_i, local_j, dist))
         total_hamming_pass += len(ssim_candidates)
 
@@ -446,7 +453,7 @@ def _run_duplicate_loop(
                 )
                 total_ssim_compared += 1
 
-                if ssim_score >= SSIM_THRESHOLD:
+                if ssim_score >= _ssim:
                     uf.union(global_i, global_j)
                     total_ssim_confirmed += 1
                     logger.debug(
@@ -560,12 +567,18 @@ def _run_duplicate_loop(
 def start_duplicate_detection(
     photo_ids: list[str],
     skip_ids: set[str] | None = None,
+    hamming_prefilter: int | None = None,
+    ssim_threshold: float | None = None,
+    time_window_gap: float | None = None,
 ) -> str:
     """Start duplicate detection in a background thread. Returns task_id.
 
     Args:
         photo_ids: List of image_id values to process.
         skip_ids: Optional set of image_id values to skip (e.g. closed-eye photos).
+        hamming_prefilter: Optional override for HAMMING_PREFILTER.
+        ssim_threshold: Optional override for SSIM_THRESHOLD.
+        time_window_gap: Optional override for TIME_WINDOW_GAP.
     """
     task_id = uuid.uuid4().hex[:8]
 
@@ -590,7 +603,7 @@ def start_duplicate_detection(
 
     t = threading.Thread(
         target=_run_duplicate_loop,
-        args=(task_id, photo_ids, skip_ids),
+        args=(task_id, photo_ids, skip_ids, hamming_prefilter, ssim_threshold, time_window_gap),
         daemon=True,
     )
     t.start()

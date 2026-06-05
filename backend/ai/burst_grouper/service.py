@@ -42,6 +42,7 @@ def _run_burst_loop(
     task_id: str,
     repo: "PhotoRepository",
     gap_seconds: float | None,
+    min_burst_size: int | None = None,
 ) -> None:
     """Run burst grouping in a background thread, updating shared state."""
     state = _tasks.get(task_id)
@@ -49,10 +50,10 @@ def _run_burst_loop(
         return
 
     state["phase"] = "正在检测连拍分组"
-    logger.info("=== Burst Grouping Start === gap=%.1f", gap_seconds or 2.0)
+    logger.info("=== Burst Grouping Start === gap=%.1f min_size=%s", gap_seconds or 2.0, min_burst_size)
 
     try:
-        summary = run_burst_grouping(repo, gap_seconds=gap_seconds)
+        summary = run_burst_grouping(repo, gap_seconds=gap_seconds, min_burst_size=min_burst_size)
 
         state["burst_groups"] = summary.burst_groups_count
         state["photos_in_bursts"] = summary.photos_in_bursts
@@ -72,6 +73,7 @@ def _run_burst_loop(
 def start_burst_grouping(
     repo: "PhotoRepository",
     gap_seconds: float | None = None,
+    min_burst_size: int | None = None,
 ) -> str:
     """Start burst grouping in a background thread. Returns task_id."""
     task_id = uuid.uuid4().hex[:8]
@@ -93,7 +95,7 @@ def start_burst_grouping(
 
     t = threading.Thread(
         target=_run_burst_loop,
-        args=(task_id, repo, gap_seconds),
+        args=(task_id, repo, gap_seconds, min_burst_size),
         daemon=True,
     )
     t.start()
@@ -117,6 +119,7 @@ def cancel_burst_grouping(task_id: str) -> bool:
 def run_burst_grouping(
     repo: "PhotoRepository",
     gap_seconds: float | None = None,
+    min_burst_size: int | None = None,
 ) -> BurstGroupSummary:
     """Run burst grouping on every photo in the database.
 
@@ -124,11 +127,12 @@ def run_burst_grouping(
         repo: A ``PhotoRepository`` instance.
         gap_seconds: Override the default gap threshold.  *None* uses
             the module default (2.0 s).
+        min_burst_size: Override ``MIN_BURST_SIZE``.
 
     Returns:
         A ``BurstGroupSummary`` with aggregate statistics.
     """
-    logger.info("=== Burst Grouping Start === gap=%.1f", gap_seconds or 2.0)
+    logger.info("=== Burst Grouping Start === gap=%.1f min_size=%s", gap_seconds or 2.0, min_burst_size)
 
     # ---- Fetch all photos ----
     all_photos = repo.get_all_photos()
@@ -147,7 +151,7 @@ def run_burst_grouping(
         )
 
     # ---- Group ----
-    groups = group_by_time_gap(photo_dicts, gap_seconds=gap_seconds)
+    groups = group_by_time_gap(photo_dicts, gap_seconds=gap_seconds, min_burst_size=min_burst_size)
 
     # ---- Write results to DB (batch transaction — 1 commit instead of N) ----
     photos_in_bursts = 0

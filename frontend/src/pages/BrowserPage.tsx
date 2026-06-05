@@ -17,7 +17,7 @@ import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
 import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, batchRestore, batchTrash, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull, trashPhoto, restorePhoto, permanentDeletePhoto, fullsizeUrl } from "../api/photoApi";
 import { clearCurrentProjectPhotos } from "../api/projectApi";
-import type { ImportResponse, PhotoFilterMode, PhotoInfo, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
+import type { ImportResponse, PhotoFilterMode, PhotoInfo, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse, PresetInfo } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
 import AnalysisSummaryModal from "../components/AnalysisSummaryModal";
@@ -72,6 +72,10 @@ const BrowserPage: React.FC<{
   const [clearing, setClearing] = useState(false);
   const clearConfirmBtnRef = useRef<HTMLButtonElement>(null);
 
+  // Sensitivity preset state
+  const [presets, setPresets] = useState<PresetInfo[]>([]);
+  const [activePresetId, setActivePresetId] = useState<string>("standard");
+
   // Auto-focus confirm button when clear dialog opens
   useEffect(() => {
     if (showClearConfirm) {
@@ -92,6 +96,35 @@ const BrowserPage: React.FC<{
       return () => clearTimeout(id);
     }
   }, [trashConfirmPhotos]);
+
+  // Load sensitivity presets on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await window.electronAPI.getPresets();
+        if (cancelled) return;
+        setPresets(data.presets);
+        setActivePresetId(data.active_preset_id);
+      } catch {
+        // Silently ignore — presets won't be available but analysis still works
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handlePresetChange = useCallback(async (presetId: string) => {
+    if (presetId === activePresetId) return;
+    try {
+      await window.electronAPI.setActivePreset(presetId);
+      setActivePresetId(presetId);
+      setDetectMsg(`检测灵敏度已切换，下次分析将使用新预设`);
+      setTimeout(() => setDetectMsg(null), 3000);
+    } catch {
+      setDetectMsg("预设切换失败");
+      setTimeout(() => setDetectMsg(null), 3000);
+    }
+  }, [activePresetId]);
 
   const {
     photos,
@@ -1398,6 +1431,26 @@ const BrowserPage: React.FC<{
           >
             📤 导出
           </button>
+          {/* Sensitivity preset selector */}
+          {presets.length > 0 && (
+            <select
+              className="preset-selector"
+              value={activePresetId}
+              disabled={smartState === "analyzing" || smartState === "culling"}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              title={
+                smartState === "analyzing" || smartState === "culling"
+                  ? "分析进行中，无法切换预设"
+                  : "检测灵敏度预设"
+              }
+            >
+              {presets.map((p) => (
+                <option key={p.id} value={p.id} title={p.description}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             className={
               smartState === "cull_ready" || smartState === "culling" ? "btn-cull" :

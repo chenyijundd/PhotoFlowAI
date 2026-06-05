@@ -283,4 +283,16 @@ def init_database(db_path: Optional[str] = None) -> str:
                     conn.execute(
                         "ALTER TABLE photos ADD COLUMN deleted_at TEXT DEFAULT NULL"
                     )
+
+        # ---- Config table (v1.6 — sensitivity presets & project-level settings) ----
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='config'"
+        )
+        if cursor.fetchone() is None:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS config ("
+                "  key   TEXT PRIMARY KEY,"
+                "  value TEXT NOT NULL"
+                ")"
+            )
     return path

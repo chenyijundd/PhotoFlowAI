@@ -49,7 +49,7 @@ _lock = threading.Lock()
 
 
 def _process_eye_chunk(
-    chunk: list[tuple[str, str]],
+    chunk: list[tuple[str, str, dict | None]],
 ) -> list[tuple[str, bool, float, int, str | None]]:
     """Process a chunk of photos in a worker thread.
 
@@ -58,7 +58,9 @@ def _process_eye_chunk(
     (1024 px) before inference.
 
     Args:
-        chunk: List of ``(image_id, readable_path)`` tuples.
+        chunk: List of ``(image_id, readable_path, thresholds)`` tuples.
+            *thresholds* is an optional dict with keys matching the
+            ``detect_eyes`` threshold parameter names.
 
     Returns:
         List of ``(image_id, success, eye_score, is_closed_eye, error_msg)``.
@@ -66,9 +68,12 @@ def _process_eye_chunk(
     from backend.ai.eye_detection.eye_detector import detect_eyes as _detect
 
     results: list[tuple[str, bool, float, int, str | None]] = []
-    for image_id, readable_path in chunk:
+    for image_id, readable_path, thresholds in chunk:
         try:
-            result = _detect(readable_path, max_dim=MAX_IMAGE_DIM)
+            kwargs = {"max_dim": MAX_IMAGE_DIM}
+            if thresholds:
+                kwargs.update(thresholds)
+            result = _detect(readable_path, **kwargs)
             is_closed_eye = 0 if result["eyes_open"] else 1
             eye_score = float(result["score"])
             results.append((image_id, True, eye_score, is_closed_eye, None))
@@ -92,6 +97,7 @@ def _run_eye_loop(
     task_id: str,
     photo_ids: list[str],
     skip_ids: set[str] | None = None,
+    thresholds: dict | None = None,
 ) -> None:
     """Run eye detection in a background thread with parallel workers.
 
@@ -107,6 +113,8 @@ def _run_eye_loop(
         skip_ids: Optional set of image_id values to skip (counted toward
             progress but not actually processed).  Used for photos that
             already have eye detection results from a previous run.
+        thresholds: Optional dict of threshold overrides passed to
+            ``detect_eyes`` (e.g. ``{"blink_score_threshold": 0.45}``).
     """
     from database.repository import PhotoRepository
 
@@ -129,7 +137,7 @@ def _run_eye_loop(
     )
 
     # ---- Collect photos to process ----
-    to_process: list[tuple[str, str]] = []  # (image_id, readable_path)
+    to_process: list[tuple[str, str, dict | None]] = []  # (image_id, readable_path, thresholds)
     skipped_db = 0
 
     for image_id in photo_ids:
@@ -154,7 +162,7 @@ def _run_eye_loop(
             skipped_db += 1
             continue
 
-        to_process.append((image_id, photo.readable_path))
+        to_process.append((image_id, photo.readable_path, thresholds))
 
     process_count = len(to_process)
     if process_count == 0:
@@ -168,7 +176,7 @@ def _run_eye_loop(
     # ---- Chunk the work ----
     chunk_count = workers * 2  # 2 chunks per worker for pipeline effect
     chunk_size = max(1, process_count // chunk_count)
-    chunks: list[list[tuple[str, str]]] = []
+    chunks: list[list[tuple[str, str, dict | None]]] = []
     for i in range(0, process_count, chunk_size):
         chunks.append(to_process[i : i + chunk_size])
 
@@ -272,6 +280,7 @@ def _run_eye_loop(
 def start_eye_detection(
     photo_ids: list[str],
     skip_ids: set[str] | None = None,
+    thresholds: dict | None = None,
 ) -> str:
     """Start eye detection in a background thread. Returns task_id.
 
@@ -279,6 +288,8 @@ def start_eye_detection(
         photo_ids: List of image_id values to process.
         skip_ids: Optional set of image_id values to skip (e.g. photos
             that already have eye detection results).
+        thresholds: Optional dict of threshold overrides passed to
+            ``detect_eyes`` (e.g. ``{"blink_score_threshold": 0.45}``).
     """
     task_id = uuid.uuid4().hex[:8]
 
@@ -299,7 +310,7 @@ def start_eye_detection(
 
     t = threading.Thread(
         target=_run_eye_loop,
-        args=(task_id, photo_ids, skip_ids),
+        args=(task_id, photo_ids, skip_ids, thresholds),
         daemon=True,
     )
     t.start()

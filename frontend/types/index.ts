@@ -263,6 +263,46 @@ export interface EyeClosedCountResponse {
   count: number;
 }
 
+// ---- Sensitivity Presets ----
+
+/** Threshold values for a single sensitivity preset. */
+export interface PresetThresholds {
+  blink_score_threshold: number;
+  ear_closed_threshold: number;
+  ear_half_closed_threshold: number;
+  blur_threshold: number;
+  preview_sharp_threshold: number;
+  preview_blur_threshold: number;
+  hamming_prefilter: number;
+  ssim_threshold: number;
+  time_window_gap: number;
+  burst_gap_seconds: number;
+  min_burst_size: number;
+  blur_tie_pct: number;
+  size_tie_pct: number;
+}
+
+/** A single sensitivity preset. */
+export interface PresetInfo {
+  id: string;
+  name: string;
+  description: string;
+  thresholds: PresetThresholds;
+}
+
+/** Response from GET /api/config/presets. */
+export interface PresetListResponse {
+  presets: PresetInfo[];
+  active_preset_id: string;
+}
+
+/** Response from PUT /api/config/presets/active. */
+export interface SetPresetResponse {
+  status: string;
+  active_preset_id: string;
+  preset_name: string;
+}
+
 /** Response from GET /api/ai/summary — AI analysis statistics snapshot. */
 export interface AISummaryResponse {
   total_analyzed: number;
@@ -447,6 +487,10 @@ export interface ElectronAPI {
   permanentDeletePhoto: (imageId: string, includePaired?: boolean) => Promise<PermanentDeleteResponse>;
   getTrashedPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getTrashedCount: () => Promise<{ count: number }>;
+  // Sensitivity presets
+  getPresets: () => Promise<PresetListResponse>;
+  getActivePreset: () => Promise<PresetInfo>;
+  setActivePreset: (presetId: string) => Promise<SetPresetResponse>;
 }
 
 /** Augment the global Window interface. */

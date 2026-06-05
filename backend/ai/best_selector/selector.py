@@ -35,7 +35,11 @@ SIZE_TIE_PCT: float = 0.20
 # ---------------------------------------------------------------------------
 
 
-def select_best(photos: list["PhotoRecord"]) -> BestSelection:
+def select_best(
+    photos: list["PhotoRecord"],
+    blur_tie_pct: float | None = None,
+    size_tie_pct: float | None = None,
+) -> BestSelection:
     """Pick the best photo from a burst group.
 
     Args:
@@ -45,6 +49,9 @@ def select_best(photos: list["PhotoRecord"]) -> BestSelection:
         A ``BestSelection`` with the recommended photo and full ranking.
         If no candidate survives filtering, ``recommended_id`` is *None*.
     """
+    _blur_tie = blur_tie_pct if blur_tie_pct is not None else BLUR_TIE_PCT
+    _size_tie = size_tie_pct if size_tie_pct is not None else SIZE_TIE_PCT
+
     if not photos:
         return BestSelection(
             group_id="",
@@ -86,7 +93,7 @@ def select_best(photos: list["PhotoRecord"]) -> BestSelection:
         tie_group = [
             p
             for p in candidates
-            if (p.blur_score or 0) >= best_blur * (1.0 - BLUR_TIE_PCT)
+            if (p.blur_score or 0) >= best_blur * (1.0 - _blur_tie)
         ]
     else:
         tie_group = candidates
@@ -100,7 +107,7 @@ def select_best(photos: list["PhotoRecord"]) -> BestSelection:
         resolution_tie = [
             p
             for p in tie_group
-            if p.file_size >= best_size * (1.0 - SIZE_TIE_PCT)
+            if p.file_size >= best_size * (1.0 - _size_tie)
         ]
     else:
         resolution_tie = tie_group

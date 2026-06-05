@@ -642,6 +642,36 @@ ipcMain.handle("get-trashed-count", async () => {
   return response.json();
 });
 
+// ---- Sensitivity Presets ----
+
+ipcMain.handle("get-presets", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/config/presets`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("get-active-preset", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/config/presets/active`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("set-active-preset", async (_event, presetId) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/config/presets/active`;
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preset_id: presetId }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${response.status}`);
+  }
+  return response.json();
+});
+
 // ---- App Menu ----
 
 function buildAppMenu() {

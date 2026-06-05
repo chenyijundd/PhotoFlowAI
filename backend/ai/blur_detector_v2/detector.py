@@ -156,7 +156,11 @@ def judge_from_cache(cached_json: str, threshold: float) -> tuple[float, int]:
     return final_score, is_blur
 
 
-def quick_blur_check(preview_path: str) -> Tuple[float, str]:
+def quick_blur_check(
+    preview_path: str,
+    sharp_threshold: float | None = None,
+    blur_threshold: float | None = None,
+) -> Tuple[float, str]:
     """Fast blur check on an 800 px AI preview image.
 
     Runs a single global Laplacian variance computation — no
@@ -166,17 +170,19 @@ def quick_blur_check(preview_path: str) -> Tuple[float, str]:
     ======================  ==========================================
     Verdict                 Meaning
     ======================  ==========================================
-    ``"sharp"``             Score > ``PREVIEW_SHARP_THRESHOLD`` —
+    ``"sharp"``             Score > sharp_threshold —
                             clearly sharp, no further analysis needed.
-    ``"blur"``              Score < ``PREVIEW_BLUR_THRESHOLD`` —
+    ``"blur"``              Score < blur_threshold —
                             clearly blurry, no further analysis needed.
-    ``"borderline"``        25 ≤ score ≤ 80 — uncertain; fall back to
+    ``"borderline"``        In between — uncertain; fall back to
                             the full ``calculate_blur_v2`` pipeline.
     ======================  ==========================================
 
     Args:
         preview_path: Path to an 800 px JPEG preview (see
             ``backend.ai.ai_preview.preview_generator``).
+        sharp_threshold: Override for ``PREVIEW_SHARP_THRESHOLD``.
+        blur_threshold: Override for ``PREVIEW_BLUR_THRESHOLD``.
 
     Returns:
         ``(score, verdict)`` where *score* is the raw Laplacian
@@ -190,9 +196,11 @@ def quick_blur_check(preview_path: str) -> Tuple[float, str]:
     if gray is None:
         raise FileNotFoundError(f"Cannot read AI preview: {preview_path}")
     score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-    if score > PREVIEW_SHARP_THRESHOLD:
+    _sharp = sharp_threshold if sharp_threshold is not None else PREVIEW_SHARP_THRESHOLD
+    _blur = blur_threshold if blur_threshold is not None else PREVIEW_BLUR_THRESHOLD
+    if score > _sharp:
         return score, "sharp"
-    elif score < PREVIEW_BLUR_THRESHOLD:
+    elif score < _blur:
         return score, "blur"
     else:
         return score, "borderline"

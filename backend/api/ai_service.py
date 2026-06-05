@@ -319,7 +319,39 @@ def _run_analyze_all(
     if not state:
         return
 
+    # ---- Read active sensitivity preset ----
+    from backend.config.presets import get_active_preset
+    preset = get_active_preset()
+    t = preset.thresholds
+    logger.info(
+        "Analyze-all using preset: %s (%s)", preset.name, preset.id,
+    )
+
     repo = PhotoRepository()
+
+    # ---- Detect preset change → reset old analysis results ----
+    last_preset = repo.get_config("analysis_preset_id")
+    if last_preset and last_preset != preset.id:
+        logger.info(
+            "Preset changed: %s → %s — resetting non-manual analysis results",
+            last_preset, preset.id,
+        )
+        analysis_reset = repo.reset_analysis_results()
+        stars_r, rejects_r = repo.reset_cull_results()
+        logger.info(
+            "Reset: analysis=%s cull_stars=%d cull_rejects=%d",
+            analysis_reset, stars_r, rejects_r,
+        )
+        if event_queue:
+            # Let the frontend know results were cleared
+            _push("preset_changed", {
+                "from": last_preset,
+                "to": preset.id,
+                "reset_fields": sum(analysis_reset.values()) if analysis_reset else 0,
+            })
+
+    # Persist this preset as the one used for the analysis about to start
+    repo.set_config("analysis_preset_id", preset.id)
 
     if filter_mode == "unprocessed":
         all_ids = [p.image_id for p in repo.get_unprocessed_photos()]
@@ -379,7 +411,11 @@ def _run_analyze_all(
             # Run both burst best and duplicate best selection
             _push("step_start", {"step": "best", "phase": phase_label, "total": total_photos})
             try:
-                burst_summary = select_best_for_all_bursts(repo)
+                burst_summary = select_best_for_all_bursts(
+                    repo,
+                    blur_tie_pct=t.blur_tie_pct,
+                    size_tie_pct=t.size_tie_pct,
+                )
                 dup_count = select_best_for_all_duplicates(repo)
                 state["progress"] = total_photos
                 state["best_count"] = burst_summary.recommended_count + dup_count
@@ -422,11 +458,35 @@ def _run_analyze_all(
             # Burst grouping operates on all photos (time-based), but we
             # clear burst_group for skipped photos after completion so
             # they don't pollute burst groups.
-            task_id_step = start_burst_grouping(repo)
+            task_id_step = start_burst_grouping(
+                repo,
+                gap_seconds=t.burst_gap_seconds,
+                min_burst_size=t.min_burst_size,
+            )
+        elif step_key == "best":
+            # Skip here — handled below
+            continue
         else:
             kwargs: dict = dict(extra_kwargs)
             if step_skip_ids:
                 kwargs["skip_ids"] = step_skip_ids
+
+            # Inject preset thresholds
+            if step_key == "eye":
+                kwargs["thresholds"] = {
+                    "blink_score_threshold": t.blink_score_threshold,
+                    "ear_closed_threshold": t.ear_closed_threshold,
+                    "ear_half_closed_threshold": t.ear_half_closed_threshold,
+                }
+            elif step_key == "blur":
+                kwargs["threshold"] = t.blur_threshold
+                kwargs["preview_sharp_threshold"] = t.preview_sharp_threshold
+                kwargs["preview_blur_threshold"] = t.preview_blur_threshold
+            elif step_key == "dup":
+                kwargs["hamming_prefilter"] = t.hamming_prefilter
+                kwargs["ssim_threshold"] = t.ssim_threshold
+                kwargs["time_window_gap"] = t.time_window_gap
+
             task_id_step = start_fn(all_ids, **kwargs)
 
         if not task_id_step:

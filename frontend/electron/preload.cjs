@@ -70,4 +70,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("menu-clear-photos", handler);
     return () => ipcRenderer.removeListener("menu-clear-photos", handler);
   },
+  // Sensitivity presets
+  getPresets: () => ipcRenderer.invoke("get-presets"),
+  getActivePreset: () => ipcRenderer.invoke("get-active-preset"),
+  setActivePreset: (presetId) => ipcRenderer.invoke("set-active-preset", presetId),
 });

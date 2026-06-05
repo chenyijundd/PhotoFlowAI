@@ -33,6 +33,7 @@ MIN_BURST_SIZE: int = 2
 def group_by_time_gap(
     photos: list[dict[str, Any]],
     gap_seconds: float | None = None,
+    min_burst_size: int | None = None,
 ) -> list[BurstGroup]:
     """Group *photos* into bursts using a simple time-gap threshold.
 
@@ -41,7 +42,7 @@ def group_by_time_gap(
         2. Iterates through the sorted list; whenever the gap between the
            current photo and the previous one exceeds *gap_seconds*, a new
            burst group is started.
-        3. Groups with fewer than ``MIN_BURST_SIZE`` members are discarded.
+        3. Groups with fewer than *min_burst_size* members are discarded.
 
     Args:
         photos: A list of dicts, each containing at least:
@@ -51,12 +52,15 @@ def group_by_time_gap(
               ``None`` or empty; such photos are skipped)
         gap_seconds: Override ``BURST_GAP_SECONDS``.  If *None*, the
             module default is used.
+        min_burst_size: Override ``MIN_BURST_SIZE``.  If *None*, the
+            module default is used.
 
     Returns:
         A list of ``BurstGroup`` objects, ordered chronologically.
         Each group is assigned a sequential ID (``burst_0001``, …).
     """
     _gap = gap_seconds if gap_seconds is not None else BURST_GAP_SECONDS
+    _min_size = min_burst_size if min_burst_size is not None else MIN_BURST_SIZE
 
     # ---- Step 1 & 2: filter + sort by created_time ----
     parsed: list[tuple[str, datetime]] = []
@@ -102,7 +106,7 @@ def group_by_time_gap(
     group_idx = 0
 
     for raw in raw_groups:
-        if len(raw) < MIN_BURST_SIZE:
+        if len(raw) < _min_size:
             continue
 
         group_idx += 1

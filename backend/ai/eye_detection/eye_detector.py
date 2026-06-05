@@ -193,7 +193,13 @@ def _ear_from_landmarks(
 # ---------------------------------------------------------------------------
 
 
-def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
+def detect_eyes(
+    image_path: str,
+    max_dim: int | None = MAX_IMAGE_DIM,
+    blink_score_threshold: float | None = None,
+    ear_closed_threshold: float | None = None,
+    ear_half_closed_threshold: float | None = None,
+) -> dict:
     """Analyse a single image for eye state.
 
     Detects all faces, evaluates eye state via blendshapes + EAR,
@@ -214,6 +220,9 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
             dramatically speeds up face detection with negligible accuracy
             loss.  Default: ``MAX_IMAGE_DIM`` (1024).  Pass ``None`` to
             use the original resolution.
+        blink_score_threshold: Override for ``BLINK_SCORE_THRESHOLD``.
+        ear_closed_threshold: Override for ``EAR_CLOSED_THRESHOLD``.
+        ear_half_closed_threshold: Override for ``EAR_HALF_CLOSED_THRESHOLD``.
 
     Returns:
         A dict with keys: file, eyes_open, score, face_detected,
@@ -222,6 +231,9 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
     Raises:
         FileNotFoundError: If the image cannot be decoded.
     """
+    _blink = blink_score_threshold if blink_score_threshold is not None else BLINK_SCORE_THRESHOLD
+    _ear_closed = ear_closed_threshold if ear_closed_threshold is not None else EAR_CLOSED_THRESHOLD
+    _ear_half = ear_half_closed_threshold if ear_half_closed_threshold is not None else EAR_HALF_CLOSED_THRESHOLD
     t0 = time.perf_counter()
 
     # ---- Read image (OpenCV → PIL fallback for HEIC etc.) ----
@@ -282,7 +294,7 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
 
         # Determine if eyes are closed
         # Primary: EAR threshold
-        ear_says_closed = min_ear < EAR_HALF_CLOSED_THRESHOLD
+        ear_says_closed = min_ear < _ear_half
 
         # Blendshapes cross-check (if available)
         blink_left = None
@@ -299,8 +311,8 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
             if blink_left is not None and blink_right is not None:
                 has_blendshapes = True
                 blend_says_closed = (
-                    blink_left > BLINK_SCORE_THRESHOLD
-                    or blink_right > BLINK_SCORE_THRESHOLD
+                    blink_left > _blink
+                    or blink_right > _blink
                 )
 
         # Final verdict: AND logic — both signals must agree
@@ -308,7 +320,7 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
             is_closed = ear_says_closed and blend_says_closed
         else:
             # Fallback: no blendshapes available → use stricter EAR-only check
-            is_closed = min_ear < EAR_CLOSED_THRESHOLD
+            is_closed = min_ear < _ear_closed
         if is_closed:
             closed_count += 1
 
@@ -344,6 +356,9 @@ def detect_eyes(image_path: str, max_dim: int | None = MAX_IMAGE_DIM) -> dict:
 def detect_eyes_batch(
     image_paths: list[str],
     max_dim: int | None = MAX_IMAGE_DIM,
+    blink_score_threshold: float | None = None,
+    ear_closed_threshold: float | None = None,
+    ear_half_closed_threshold: float | None = None,
 ) -> list[dict]:
     """Run ``detect_eyes`` on every path in *image_paths*.
 
@@ -354,11 +369,19 @@ def detect_eyes_batch(
     Args:
         image_paths: List of absolute image paths.
         max_dim: Passed through to ``detect_eyes``.  Default: 1024.
+        blink_score_threshold: Passed through to ``detect_eyes``.
+        ear_closed_threshold: Passed through to ``detect_eyes``.
+        ear_half_closed_threshold: Passed through to ``detect_eyes``.
     """
     results: list[dict] = []
     for path in image_paths:
         try:
-            results.append(detect_eyes(path, max_dim=max_dim))
+            results.append(detect_eyes(
+                path, max_dim=max_dim,
+                blink_score_threshold=blink_score_threshold,
+                ear_closed_threshold=ear_closed_threshold,
+                ear_half_closed_threshold=ear_half_closed_threshold,
+            ))
         except Exception as exc:
             results.append({
                 "file": path,

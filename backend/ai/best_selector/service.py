@@ -23,7 +23,11 @@ from backend.logging_config import setup_best_selector_logging
 setup_best_selector_logging()
 
 
-def select_best_for_all_bursts(repo: "PhotoRepository") -> BestSelectionSummary:
+def select_best_for_all_bursts(
+    repo: "PhotoRepository",
+    blur_tie_pct: float | None = None,
+    size_tie_pct: float | None = None,
+) -> BestSelectionSummary:
     """Run best-in-burst selection on every burst group in the database.
 
     Writes ``is_best_in_burst = 1`` for recommended photos and
@@ -31,6 +35,8 @@ def select_best_for_all_bursts(repo: "PhotoRepository") -> BestSelectionSummary:
 
     Args:
         repo: A ``PhotoRepository`` instance.
+        blur_tie_pct: Override for ``BLUR_TIE_PCT``.
+        size_tie_pct: Override for ``SIZE_TIE_PCT``.
 
     Returns:
         A ``BestSelectionSummary`` with aggregate statistics.
@@ -52,7 +58,7 @@ def select_best_for_all_bursts(repo: "PhotoRepository") -> BestSelectionSummary:
     with repo.batch_transaction():
         for gid in group_ids:
             photos = repo.get_burst_group_photos(gid)
-            selection = select_best(photos)
+            selection = select_best(photos, blur_tie_pct=blur_tie_pct, size_tie_pct=size_tie_pct)
 
             # Write results to DB
             for r in selection.rankings:

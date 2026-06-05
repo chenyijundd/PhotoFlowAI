@@ -16,6 +16,7 @@ from .project_service import router as project_router
 from backend.importer.import_service import router as import_router
 from .export_service import router as export_router
 from .trash_service import router as trash_router
+from .config_service import router as config_router
 from database.connection import init_database, close_all_pools
 from backend.logging_config import setup_all_logging
 
@@ -47,6 +48,7 @@ app.include_router(project_router)
 app.include_router(import_router)
 app.include_router(export_router)
 app.include_router(trash_router)
+app.include_router(config_router)
 
 
 @app.get("/api/health")
