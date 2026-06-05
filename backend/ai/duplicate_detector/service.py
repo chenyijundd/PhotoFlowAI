@@ -40,10 +40,10 @@ from .detector import compute_dhash_int, hamming_distance_int, compute_ssim
 from backend.logging_config import setup_duplicate_logging
 
 DUPLICATE_THRESHOLD = 5                  # DEPRECATED: kept for compat — use HAMMING_PREFILTER
-HAMMING_PREFILTER = 12                   # max Hamming distance to consider for SSIM verification
-SSIM_THRESHOLD = 0.70                    # min SSIM score to confirm duplicate (0–1)
+HAMMING_PREFILTER = 15                   # max Hamming distance to consider for SSIM verification
+SSIM_THRESHOLD = 0.60                    # min SSIM score to confirm duplicate (0–1)
 SSIM_TARGET_SIZE = (256, 256)            # resize images to this size before SSIM
-TIME_WINDOW_GAP = 30.0                   # seconds — gap larger than this → new window
+TIME_WINDOW_GAP = 300.0                  # seconds — gap larger than this → new window
 MULTI_INDEX_SEGMENTS = 8                 # split 64-bit hash into 8 × 8-bit segments
 
 logger = logging.getLogger("duplicate_detection")

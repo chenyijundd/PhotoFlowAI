@@ -128,6 +128,69 @@ async def delete_project(project_id: str, delete_db: bool = False):
     return {"status": "ok"}
 
 
+@router.post("/current/clear")
+async def clear_current_project_photos():
+    """Clear all photos from the currently-open project. Does NOT delete local files."""
+    manager = get_project_manager()
+    if manager.current_project is None:
+        raise HTTPException(status_code=400, detail="No project is currently open.")
+    return _do_clear(manager, manager.current_project.id, manager.current_project)
+
+
+@router.post("/{project_id}/clear")
+async def clear_project_photos(project_id: str):
+    """Clear all photos from a project. Does NOT delete local image files.
+
+    Only removes the database records and cached thumbnails.  The original
+    photos on disk are never touched.
+    """
+    import os as _os
+
+    manager = get_project_manager()
+    project = _do_clear(manager, project_id, manager.get_project(project_id))
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+    return project
+
+
+def _do_clear(manager, project_id: str, project):
+    """Internal: clear all photos from a project database. Returns response dict."""
+    import os as _os
+
+    if project is None:
+        return None
+
+    from database.repository import PhotoRepository
+    repo = PhotoRepository(db_path=project.db_path)
+    all_photos = repo.get_all_photos()
+    image_ids = [p.image_id for p in all_photos]
+
+    deleted = repo.clear_all()
+    logger.info("Cleared %d photos from project '%s'", deleted, project.name)
+
+    removed_thumbs = 0
+    _cache_dir = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))),
+        "cache", "thumbnails",
+    )
+    for image_id in image_ids:
+        thumb_path = _os.path.join(_cache_dir, f"{image_id}.jpg")
+        if _os.path.isfile(thumb_path):
+            try:
+                _os.remove(thumb_path)
+                removed_thumbs += 1
+            except OSError:
+                pass
+
+    manager._refresh_project_stats(project.db_path)
+
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "thumbnails_removed": removed_thumbs,
+    }
+
+
 @router.get("/current")
 async def get_current_project():
     """Return the currently-open project, or null if no project is open."""

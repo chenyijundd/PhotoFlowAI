@@ -393,6 +393,7 @@ export interface ElectronAPI {
   selectDirectory: () => Promise<string | null>;
   importPhotos: (dirPath: string) => Promise<ImportResponse>;
   onMenuImport: (callback: () => void) => (() => void) | undefined;
+  onMenuClearPhotos: (callback: () => void) => (() => void) | undefined;
   updateStarRating: (imageId: string, starRating: number) => Promise<StarResponse>;
   getStarredPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
   getStarredCount: () => Promise<StarredCountResponse>;

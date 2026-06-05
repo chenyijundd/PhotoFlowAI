@@ -649,7 +649,7 @@ function buildAppMenu() {
     {
       label: "文件",
       submenu: [
-        { label: "导入照片", accelerator: "CmdOrCtrl+O", click: () => mainWindow?.webContents.send("menu-import") },
+        { label: "清空照片", click: () => mainWindow?.webContents.send("menu-clear-photos") },
         { type: "separator" },
         { label: "退出", accelerator: "CmdOrCtrl+Q", role: "quit" },
       ],

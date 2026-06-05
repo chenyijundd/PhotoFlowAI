@@ -88,6 +88,30 @@ export async function deleteProject(
   }
 }
 
+/** Clear all photos from a project. Does NOT delete local image files. */
+export async function clearProjectPhotos(
+  projectId: string,
+): Promise<{ deleted: number; thumbnails_removed: number }> {
+  const url = `${BACKEND_URL}/api/projects/${encodeURIComponent(projectId)}/clear`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Clear all photos from the currently-open project. Does NOT delete local image files. */
+export async function clearCurrentProjectPhotos(): Promise<{ deleted: number; thumbnails_removed: number }> {
+  const url = `${BACKEND_URL}/api/projects/current/clear`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().then((b) => b.detail).catch(() => null);
+    throw new Error(detail || `Backend returned ${res.status}`);
+  }
+  return res.json();
+}
+
 /** Get the currently-open project, or null. */
 export async function fetchCurrentProject(): Promise<ProjectInfo | null> {
   const url = `${BACKEND_URL}/api/projects/current`;

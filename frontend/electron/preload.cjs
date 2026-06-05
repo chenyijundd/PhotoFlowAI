@@ -65,4 +65,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("menu-import", handler);
     return () => ipcRenderer.removeListener("menu-import", handler);
   },
+  onMenuClearPhotos: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("menu-clear-photos", handler);
+    return () => ipcRenderer.removeListener("menu-clear-photos", handler);
+  },
 });

@@ -16,6 +16,7 @@ import { useKeyboardHandler, KEY_PRIORITY } from "../hooks/useKeyboardManager";
 import { useImagePreloader } from "../hooks/useImagePreloader";
 import { imagePreloader } from "../services/ImagePreloader";
 import { updateStarRating, updateRejectStatus, fetchCounts, analyzeAll, analyzeProgress, cullAll, cullProgress, fetchAISummary, batchUpdate, batchRestore, batchTrash, connectAnalyzeStream, connectCullStream, cancelAnalyze, cancelCull, trashPhoto, restorePhoto, permanentDeletePhoto, fullsizeUrl } from "../api/photoApi";
+import { clearCurrentProjectPhotos } from "../api/projectApi";
 import type { ImportResponse, PhotoFilterMode, PhotoInfo, AICategory, DetectionProgressResponse, CullProgressResponse, AISummaryResponse } from "../../types";
 import type { GridHandle } from "../components/ImageGrid";
 import ExportDialog from "../components/ExportDialog";
@@ -65,6 +66,19 @@ const BrowserPage: React.FC<{
   const [trashConfirmIndex, setTrashConfirmIndex] = useState(0);
   const [trashIncludePaired, setTrashIncludePaired] = useState(true);
   const trashConfirmBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Clear all photos confirm dialog state
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const clearConfirmBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-focus confirm button when clear dialog opens
+  useEffect(() => {
+    if (showClearConfirm) {
+      const id = setTimeout(() => clearConfirmBtnRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showClearConfirm]);
 
   // Derived: current photo shown in the dialog (null when dialog is closed)
   const trashConfirmPhoto = trashConfirmPhotos.length > 0
@@ -1249,6 +1263,33 @@ const BrowserPage: React.FC<{
     };
   }, [handleImport]);
 
+  // Listen for menu "清空照片" command
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onMenuClearPhotos(() => {
+      setShowClearConfirm(true);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
+  // Handle clear all photos
+  const handleClearPhotos = useCallback(async () => {
+    if (clearing) return;
+    setClearing(true);
+    try {
+      await clearCurrentProjectPhotos();
+      setShowClearConfirm(false);
+      // Reload to show empty state
+      refresh();
+      loadCounts();
+    } catch {
+      // silently fail
+    } finally {
+      setClearing(false);
+    }
+  }, [clearing, refresh, loadCounts]);
+
   // ---- Burst Compare Mode takes over the entire page ----
   if (isBurstCompareMode) {
     return <BurstCompareGrid />;
@@ -1740,6 +1781,44 @@ const BrowserPage: React.FC<{
               <button
                 className="btn-cancel"
                 onClick={() => { setTrashConfirmPhotos([]); setTrashConfirmIndex(0); }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear all photos confirmation dialog */}
+      {showClearConfirm && (
+        <div
+          className="trash-confirm-overlay"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setShowClearConfirm(false);
+          }}
+        >
+          <div className="trash-confirm-dialog" style={{ maxWidth: "420px" }}>
+            <h2>清空项目照片</h2>
+            <p style={{ color: "#ccc", fontSize: "14px", lineHeight: 1.6, margin: "16px 0 8px" }}>
+              确定要清空当前项目中的所有照片吗？
+            </p>
+            <p style={{ color: "#888", fontSize: "13px", lineHeight: 1.5, marginBottom: "16px" }}>
+              此操作仅删除项目中的照片记录和缩略图缓存。<br />
+              <strong style={{ color: "#4caf50" }}>本地原始图片文件不会被删除。</strong>
+            </p>
+            <div className="trash-confirm-actions">
+              <button
+                ref={clearConfirmBtnRef}
+                className="btn-primary"
+                style={{ background: "#ff9800" }}
+                onClick={handleClearPhotos}
+                disabled={clearing}
+              >
+                {clearing ? "清空中..." : "确认清空"}
+              </button>
+              <button
+                className="btn-cancel"
+                onClick={() => setShowClearConfirm(false)}
               >
                 取消
               </button>
