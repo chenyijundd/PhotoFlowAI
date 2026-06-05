@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Tunable constants (exposed at module level for future configuration UI)
+# Tunable constants — 直接修改下面的数值即可调整检测灵敏度
 # ---------------------------------------------------------------------------
 
 PATCH_GRID: int = 4
@@ -43,10 +43,9 @@ BLUR_THRESHOLD: float = 25.0
 """
 Photos with a final score *below* this value are classified as blurry.
 
-Calibrated through real‑world testing.  The multi‑patch + top‑median
-approach produces scores that are naturally concentrated on the sharpest
-regions; 25.0 was found to be the sweet spot that catches genuinely
-blurry photos while letting bokeh / plain‑background shots through.
+直接修改此数值调整灵敏度：
+  调低（如 15）→ 更宽松，更少照片被标为模糊
+  调高（如 40）→ 更严格，更多照片被标为模糊
 """
 
 CENTRE_WEIGHT_TOP_FRACTION: float = 0.5

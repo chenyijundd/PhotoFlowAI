@@ -1,4 +1,0 @@
-﻿file_name,v1_score,v1_is_blur,v2_score,v2_is_blur,v2_w_avg,v2_top_med,agreement,notes
-bokeh_portrait.jpg,7224.64,0,12082.93,0,8711.28,14330.69,both_clear,
-plain_bg_sharp.jpg,3979.54,0,6642.86,0,4834.8,7848.24,both_clear,
-true_blur.jpg,1.24,1,1.27,1,1.24,1.28,both_blur,
