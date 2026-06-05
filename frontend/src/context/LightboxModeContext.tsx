@@ -144,7 +144,15 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       const newRating = (photo.star_rating ?? 0) >= 1 ? 0 : 1;
       await updateStarRating(photo.image_id, newRating);
-      updatePhoto(photo.image_id, { star_rating: newRating });
+
+      // Mutual exclusivity: starring clears reject
+      let newReject = photo.is_rejected ?? 0;
+      if (newRating >= 1 && newReject >= 1) {
+        newReject = 0;
+        await updateRejectStatus(photo.image_id, 0);
+      }
+
+      updatePhoto(photo.image_id, { star_rating: newRating, is_rejected: newReject });
       markDirty();
       setStatusType("star");
       setTimeout(() => setStatusType(null), 500);
@@ -165,7 +173,15 @@ export const LightboxModeProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       const newReject = (photo.is_rejected ?? 0) >= 1 ? 0 : 1;
       await updateRejectStatus(photo.image_id, newReject);
-      updatePhoto(photo.image_id, { is_rejected: newReject });
+
+      // Mutual exclusivity: rejecting clears star
+      let newRating = photo.star_rating ?? 0;
+      if (newReject >= 1 && newRating >= 1) {
+        newRating = 0;
+        await updateStarRating(photo.image_id, 0);
+      }
+
+      updatePhoto(photo.image_id, { star_rating: newRating, is_rejected: newReject });
       markDirty();
       setStatusType("reject");
       setTimeout(() => setStatusType(null), 500);

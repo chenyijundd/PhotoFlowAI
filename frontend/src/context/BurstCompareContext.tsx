@@ -137,7 +137,15 @@ export const BurstCompareProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!photo) return -1;
         const newRating = (photo.star_rating ?? 0) >= 1 ? 0 : 1;
         await updateStarRating(imageId, newRating);
-        updatePhotoInState(imageId, { star_rating: newRating });
+
+        // Mutual exclusivity: starring clears reject
+        let newReject = photo.is_rejected ?? 0;
+        if (newRating >= 1 && newReject >= 1) {
+          newReject = 0;
+          await updateRejectStatus(imageId, 0);
+        }
+
+        updatePhotoInState(imageId, { star_rating: newRating, is_rejected: newReject });
         return newRating;
       } catch {
         return -1;
@@ -158,7 +166,15 @@ export const BurstCompareProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!photo) return -1;
         const newReject = (photo.is_rejected ?? 0) >= 1 ? 0 : 1;
         await updateRejectStatus(imageId, newReject);
-        updatePhotoInState(imageId, { is_rejected: newReject });
+
+        // Mutual exclusivity: rejecting clears star
+        let newRating = photo.star_rating ?? 0;
+        if (newReject >= 1 && newRating >= 1) {
+          newRating = 0;
+          await updateStarRating(imageId, 0);
+        }
+
+        updatePhotoInState(imageId, { star_rating: newRating, is_rejected: newReject });
         return newReject;
       } catch {
         return -1;
