@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .selector import select_best
-from .models import BestSelection, BestSelectionSummary
+from .models import BestSelectionSummary
 
 if TYPE_CHECKING:
     from database.repository import PhotoRepository

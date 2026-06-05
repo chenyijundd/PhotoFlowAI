@@ -18,7 +18,6 @@ from backend.config.presets import (
     list_presets,
     set_active_preset,
 )
-from database.repository import PhotoRepository
 
 logger = logging.getLogger(__name__)
 

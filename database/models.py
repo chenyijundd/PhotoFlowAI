@@ -110,8 +110,3 @@ class PhotoRecord:
     def placeholders(cls) -> str:
         """Return SQL placeholders for all columns."""
         return ", ".join("?" for _ in PHOTO_COLUMNS)
-
-    @classmethod
-    def update_set_clause(cls, *fields: str) -> str:
-        """Return SET clause for UPDATE, e.g. \"blur_score = ?, is_blur = ?\"."""
-        return ", ".join(f"{f} = ?" for f in fields)

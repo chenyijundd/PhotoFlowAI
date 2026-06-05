@@ -1286,16 +1286,6 @@ const BrowserPage: React.FC<{
 
   useKeyboardHandler("app-export", handleEKey, KEY_PRIORITY.APP, !showExportDialog);
 
-  // Listen for menu "导入照片" command
-  useEffect(() => {
-    const unsubscribe = window.electronAPI?.onMenuImport(() => {
-      handleImport();
-    });
-    return () => {
-      unsubscribe?.();
-    };
-  }, [handleImport]);
-
   // Listen for menu "清空照片" command
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onMenuClearPhotos(() => {

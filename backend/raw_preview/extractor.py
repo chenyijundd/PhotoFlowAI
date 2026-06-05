@@ -70,11 +70,6 @@ def preview_path_for(image_id: str, cache_dir: str | None = None) -> str:
     return os.path.join(_dir, f"{image_id}.jpg")
 
 
-def preview_exists(image_id: str, cache_dir: str | None = None) -> bool:
-    """Check whether a preview JPEG has already been extracted."""
-    return os.path.isfile(preview_path_for(image_id, cache_dir))
-
-
 # ---------------------------------------------------------------------------
 # Core extraction
 # ---------------------------------------------------------------------------
@@ -181,21 +176,6 @@ def get_raw_dimensions(raw_path: str) -> tuple[int, int]:
         return (0, 0)
 
 
-def resolve_readable_path(
-    file_path: str,
-    raw_preview_path: str | None = None,
-) -> str:
-    """Return the path that can be opened by standard image libraries.
-
-    For RAW files, returns the extracted JPEG preview path.
-    For regular images, returns *file_path* unchanged.
-
-    This is the single entry-point that all downstream code should
-    use when it needs to actually read pixel data.
-    """
-    if raw_preview_path and os.path.isfile(raw_preview_path):
-        return raw_preview_path
-    return file_path
 
 
 def read_image_bgr(image_path: str):

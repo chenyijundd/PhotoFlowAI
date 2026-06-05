@@ -31,7 +31,6 @@ import os
 import threading
 import time
 import urllib.request
-from typing import Optional
 
 import cv2
 import numpy as np

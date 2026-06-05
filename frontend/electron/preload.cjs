@@ -60,11 +60,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getTrashedPhotos: (limit, offset) => ipcRenderer.invoke("get-trashed-photos", limit, offset),
   getTrashedCount: () => ipcRenderer.invoke("get-trashed-count"),
   // Menu
-  onMenuImport: (callback) => {
-    const handler = () => callback();
-    ipcRenderer.on("menu-import", handler);
-    return () => ipcRenderer.removeListener("menu-import", handler);
-  },
   onMenuClearPhotos: (callback) => {
     const handler = () => callback();
     ipcRenderer.on("menu-clear-photos", handler);
@@ -72,6 +67,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   // Sensitivity presets
   getPresets: () => ipcRenderer.invoke("get-presets"),
-  getActivePreset: () => ipcRenderer.invoke("get-active-preset"),
   setActivePreset: (presetId) => ipcRenderer.invoke("set-active-preset", presetId),
 });

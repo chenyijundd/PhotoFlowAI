@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 
 # Ensure the project root is on sys.path so we can import sibling packages.
 _PROJECT_ROOT = os.path.dirname(
@@ -33,7 +32,7 @@ from backend.ai.blur_detector_v2.detector import (
     PATCH_GRID,
     calculate_blur_v2,
 )
-from backend.ai.blur_detector_v2.models import BlurDetectionResult, BlurDetectionSummary
+from backend.ai.blur_detector_v2.models import BlurDetectionResult
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png"}
 

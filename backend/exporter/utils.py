@@ -13,13 +13,6 @@ from PIL import Image
 
 logger = logging.getLogger("export")
 
-# Pillow format name → file extension mapping
-FORMAT_TO_EXT = {
-    "jpeg": ".jpg",
-    "png": ".png",
-}
-
-
 def _convert_image(source_path: str, target_path: str, target_format: str) -> None:
     """Open source image with Pillow and save in the target format.
 
@@ -111,23 +104,3 @@ def copy_file_safe(
         return False, f"Copy failed: {exc}"
 
 
-def estimate_export_count(
-    photo_ids: list[str],
-    repo,
-) -> int:
-    """
-    Count how many source files actually exist for the given photo IDs.
-
-    Args:
-        photo_ids: List of image IDs to export.
-        repo: PhotoRepository instance.
-
-    Returns:
-        Number of exportable files.
-    """
-    count = 0
-    for pid in photo_ids:
-        photo = repo.get_photo_by_id(pid)
-        if photo and os.path.isfile(photo.file_path):
-            count += 1
-    return count

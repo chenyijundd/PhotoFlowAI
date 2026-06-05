@@ -6,7 +6,6 @@ All models use dataclasses for type safety and clarity.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 
 @dataclass

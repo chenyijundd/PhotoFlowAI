@@ -1,3 +1,0 @@
-"""
-PhotoFlow AI - Scoring Module
-"""

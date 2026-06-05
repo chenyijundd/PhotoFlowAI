@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import sys
-import time
 
 # Ensure the project root is on sys.path so we can import sibling packages.
 _PROJECT_ROOT = os.path.dirname(
@@ -35,7 +34,7 @@ from backend.ai.eye_detection.eye_detector import (
     EAR_CLOSED_THRESHOLD,
     EAR_HALF_CLOSED_THRESHOLD,
 )
-from backend.ai.eye_detection.models import EyeDetectionResult, EyeDetectionSummary
+from backend.ai.eye_detection.models import EyeDetectionResult
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png"}
 

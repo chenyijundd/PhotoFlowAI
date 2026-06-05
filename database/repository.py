@@ -13,7 +13,7 @@ Performance (Task 14):
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any
 
 from .connection import DatabaseConnection, init_database
 from .models import PHOTO_COLUMNS, PhotoRecord

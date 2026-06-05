@@ -12,7 +12,6 @@ Performance (Task 14):
 import os
 import logging
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image
 

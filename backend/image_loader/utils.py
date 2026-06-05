@@ -7,7 +7,6 @@ Each function is self-contained for independent testing.
 
 import os
 import hashlib
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, Optional

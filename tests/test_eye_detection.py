@@ -9,7 +9,6 @@ Verifies:
 5. MediaPipe model download and singleton caching
 """
 
-import math
 import os
 import sys
 import tempfile

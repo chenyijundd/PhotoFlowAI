@@ -9,7 +9,7 @@ to load 50–100× faster than a 24 MP HEIC/RAW original.
 Usage::
 
     from backend.ai.ai_preview.preview_generator import (
-        get_preview_path, ensure_preview, preview_exists,
+        get_preview_path, ensure_preview,
     )
 
     path = ensure_preview(image_id, readable_source_path)
@@ -49,11 +49,6 @@ PREVIEW_DIR: str = os.path.join(_PROJECT_ROOT, "cache", "ai_previews")
 def get_preview_path(image_id: str) -> str:
     """Return the expected on-disk path for *image_id*'s AI preview."""
     return os.path.join(PREVIEW_DIR, f"{image_id}.jpg")
-
-
-def preview_exists(image_id: str) -> bool:
-    """Check whether an 800 px AI preview already exists for *image_id*."""
-    return os.path.isfile(get_preview_path(image_id))
 
 
 def _generate_preview(image_id: str, source_path: str) -> str:

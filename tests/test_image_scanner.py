@@ -15,7 +15,6 @@ import sys
 import subprocess
 import tempfile
 import unittest
-from io import BytesIO
 
 from PIL import Image
 

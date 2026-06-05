@@ -25,7 +25,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Optional
 
 from .detector import calculate_blur_v2
-from .models import BlurDetectionResult, BlurDetectionSummary
+from .models import BlurDetectionSummary
 
 if TYPE_CHECKING:
     from database.repository import PhotoRepository

@@ -6,7 +6,7 @@
  * (dev mode), requests go directly to the FastAPI backend.
  */
 
-import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, StarredCountResponse, BlurCountResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, RejectedCountResponse, DuplicateCountResponse, GetPhotosByGroupResponse, BurstCountResponse, BurstGroupsResponse, BestCountResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, EyeClosedCountResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse, TrashResponse, PermanentDeleteResponse, AnalyzeStreamCallbacks, AnalyzeStepStartData, AnalyzeProgressData, AnalyzeStepCompleteData, AnalyzeTaskCompleteData, CullStreamCallbacks } from "../../types";
+import type { GetPhotosResponse, PhotoDetailResponse, StarResponse, CountsResponse, TaskStartResponse, DetectionProgressResponse, RejectResponse, GetPhotosByGroupResponse, BurstOpResponse, OneClickCullResponse, CullProgressResponse, ExportStartResponse, ExportProgressResponse, ExportSummaryResponse, AISummaryResponse, BatchUpdateRequest, BatchUpdateResponse, TrashResponse, PermanentDeleteResponse, AnalyzeStreamCallbacks, AnalyzeStepStartData, AnalyzeProgressData, AnalyzeStepCompleteData, AnalyzeTaskCompleteData, CullStreamCallbacks } from "../../types";
 
 /** Backend API base URL. */
 const BACKEND_URL = "http://127.0.0.1:8765";
@@ -117,72 +117,6 @@ export async function fetchCounts(): Promise<CountsResponse> {
   return res.json();
 }
 
-/** Fetch the count of blur photos. */
-export async function fetchBlurCount(): Promise<BlurCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getBlurCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/blur/count`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
-  }
-  return res.json();
-}
-
-/** Start blur detection (multi-patch, content-aware). */
-export async function runBlurDetectionV2(
-  photoIds: string[],
-  threshold?: number
-): Promise<TaskStartResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.runBlurDetectionV2(photoIds, threshold);
-  }
-  const url = `${BACKEND_URL}/api/ai/blur-detect-v2`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ photo_ids: photoIds, threshold: threshold ?? null }),
-  });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Poll blur detection V2 progress. */
-export async function blurProgressV2(taskId: string): Promise<DetectionProgressResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.blurProgressV2(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/blur-progress-v2/${taskId}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Cancel blur detection V2. */
-export async function blurCancelV2(taskId: string): Promise<{ status: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.blurCancelV2(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/blur-cancel-v2/${taskId}`;
-  const res = await fetch(url, { method: "POST" });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch the count of starred photos. */
-export async function fetchStarredCount(): Promise<StarredCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getStarredCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/starred/count`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
-  }
-  return res.json();
-}
-
 /** Update reject status (0 or 1) for a photo. */
 export async function updateRejectStatus(
   imageId: string,
@@ -219,58 +153,6 @@ export async function fetchRejectedPhotos(
   return res.json();
 }
 
-/** Fetch the count of rejected photos. */
-export async function fetchRejectedCount(): Promise<RejectedCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getRejectedCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/rejected/count`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
-  }
-  return res.json();
-}
-
-/** Start duplicate detection (async — returns task_id). */
-export async function runDuplicateDetection(
-  photoIds: string[]
-): Promise<TaskStartResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.runDuplicateDetection(photoIds);
-  }
-  const url = `${BACKEND_URL}/api/ai/duplicate-detect`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ photo_ids: photoIds }),
-  });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Poll duplicate detection progress. */
-export async function duplicateProgress(taskId: string): Promise<DetectionProgressResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.duplicateProgress(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/duplicate-progress/${taskId}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Cancel duplicate detection. */
-export async function duplicateCancel(taskId: string): Promise<{ status: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.duplicateCancel(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/duplicate-cancel/${taskId}`;
-  const res = await fetch(url, { method: "POST" });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
 /** Fetch duplicate photos (is_duplicate == 1) with pagination. */
 export async function fetchDuplicatePhotos(
   limit: number = 100,
@@ -280,19 +162,6 @@ export async function fetchDuplicatePhotos(
     return window.electronAPI.getDuplicatePhotos(limit, offset);
   }
   const url = `${BACKEND_URL}/api/photos/duplicate?limit=${limit}&offset=${offset}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Backend returned ${res.status}`);
-  }
-  return res.json();
-}
-
-/** Fetch the count of duplicate photos. */
-export async function fetchDuplicateCount(): Promise<DuplicateCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getDuplicateCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/duplicate/count`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Backend returned ${res.status}`);
@@ -340,7 +209,6 @@ export async function exportStart(
     start_index: startIndex ?? null,
     export_format: exportFormat || "original",
   });
-  console.log("[exportStart] JSON body:", body);
   const url = `${BACKEND_URL}/api/export/start`;
   const res = await fetch(url, {
     method: "POST",
@@ -384,73 +252,12 @@ export async function exportSummary(exportId: string): Promise<ExportSummaryResp
   return res.json();
 }
 
-/** Start burst grouping (async — returns task_id). */
-export async function runBurstGrouping(
-  gapSeconds?: number
-): Promise<TaskStartResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.runBurstGrouping(gapSeconds);
-  }
-  const url = `${BACKEND_URL}/api/ai/burst-group`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gap_seconds: gapSeconds ?? null }),
-  });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Poll burst grouping progress. */
-export async function burstProgress(taskId: string): Promise<DetectionProgressResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.burstProgress(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/burst-progress/${taskId}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Cancel burst grouping. */
-export async function burstCancel(taskId: string): Promise<{ status: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.burstCancel(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/burst-cancel/${taskId}`;
-  const res = await fetch(url, { method: "POST" });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch all burst groups summary. */
-export async function fetchBurstGroups(): Promise<BurstGroupsResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getBurstGroups();
-  }
-  const url = `${BACKEND_URL}/api/photos/bursts`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
 /** Fetch photos in a specific burst group. */
 export async function fetchBurstPhotos(groupId: string): Promise<GetPhotosByGroupResponse> {
   if (window.electronAPI) {
     return window.electronAPI.getBurstPhotos(groupId);
   }
   const url = `${BACKEND_URL}/api/photos/burst/${encodeURIComponent(groupId)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch burst group count. */
-export async function fetchBurstCount(): Promise<BurstCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getBurstCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/bursts/count`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
@@ -499,14 +306,6 @@ export async function fetchUnprocessedPhotos(limit = 100, offset = 0): Promise<G
   return res.json();
 }
 
-/** Fetch unprocessed count. */
-export async function fetchUnprocessedCount(): Promise<{ count: number }> {
-  if (window.electronAPI) return window.electronAPI.getUnprocessedCount();
-  const res = await fetch(`${BACKEND_URL}/api/photos/unprocessed/count`);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
 /** Fetch best-in-burst photos (for best filter mode). */
 export async function fetchBestPhotosList(
   limit: number = 100,
@@ -516,17 +315,6 @@ export async function fetchBestPhotosList(
     return window.electronAPI.getBestPhotosList(limit, offset);
   }
   const url = `${BACKEND_URL}/api/photos/best?limit=${limit}&offset=${offset}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch best-in-burst count. */
-export async function fetchBestCount(): Promise<BestCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getBestCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/best/count`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
@@ -601,56 +389,6 @@ export async function fetchClosedEyePhotos(
   }
   const url = `${BACKEND_URL}/api/photos/closed-eye?limit=${limit}&offset=${offset}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch the count of closed-eye photos. */
-export async function fetchClosedEyeCount(): Promise<EyeClosedCountResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.getClosedEyeCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/closed-eye/count`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Start eye detection (closed / half-closed eyes). */
-export async function runEyeDetection(
-  photoIds: string[]
-): Promise<TaskStartResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.runEyeDetection(photoIds);
-  }
-  const url = `${BACKEND_URL}/api/ai/eye-detect`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ photo_ids: photoIds }),
-  });
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Poll eye detection progress. */
-export async function eyeProgress(taskId: string): Promise<DetectionProgressResponse> {
-  if (window.electronAPI) {
-    return window.electronAPI.eyeProgress(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/eye-progress/${taskId}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Cancel eye detection. */
-export async function eyeCancel(taskId: string): Promise<{ status: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.eyeCancel(taskId);
-  }
-  const url = `${BACKEND_URL}/api/ai/eye-cancel/${taskId}`;
-  const res = await fetch(url, { method: "POST" });
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();
 }
@@ -851,17 +589,6 @@ export async function fetchTrashedPhotos(
     return window.electronAPI.getTrashedPhotos(limit, offset);
   }
   const url = `${BACKEND_URL}/api/photos/trashed?limit=${limit}&offset=${offset}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  return res.json();
-}
-
-/** Fetch trashed photo count. */
-export async function fetchTrashedCount(): Promise<{ count: number }> {
-  if (window.electronAPI) {
-    return window.electronAPI.getTrashedCount();
-  }
-  const url = `${BACKEND_URL}/api/photos/trashed/count`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   return res.json();

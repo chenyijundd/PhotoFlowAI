@@ -301,22 +301,6 @@ ipcMain.handle("burst-reject-all", async (_event, groupId) => {
   return response.json();
 });
 
-/** Accept best in ALL burst groups. */
-ipcMain.handle("burst-accept-all-best", async () => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/accept-all-best`;
-  const response = await fetch(url, { method: "POST" });
-  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
-  return response.json();
-});
-
-/** Reject all non-recommended photos across all burst groups. */
-ipcMain.handle("burst-reject-all-rest", async () => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/burst/reject-all-rest`;
-  const response = await fetch(url, { method: "POST" });
-  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
-  return response.json();
-});
-
 /** Comprehensive one-click cull: blur + duplicate + burst + AI suggestions (async). */
 ipcMain.handle("cull-all", async () => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/photos/cull-all`;
@@ -646,13 +630,6 @@ ipcMain.handle("get-trashed-count", async () => {
 
 ipcMain.handle("get-presets", async () => {
   const url = `http://127.0.0.1:${PYTHON_PORT}/api/config/presets`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
-  return response.json();
-});
-
-ipcMain.handle("get-active-preset", async () => {
-  const url = `http://127.0.0.1:${PYTHON_PORT}/api/config/presets/active`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Backend returned ${response.status}`);
   return response.json();

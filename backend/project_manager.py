@@ -34,7 +34,7 @@ import threading
 import uuid
 import logging
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from database.connection import get_default_db_path
