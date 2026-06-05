@@ -14,8 +14,11 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Threshold data class
@@ -192,5 +195,5 @@ def set_active_preset(preset_id: str) -> Preset:
         repo = PhotoRepository()
         repo.set_config("active_preset", preset.id)
     except Exception:
-        pass  # best-effort — preset still returned even if DB write fails
+        logger.warning("Failed to persist active preset '%s'", preset.id, exc_info=True)
     return preset

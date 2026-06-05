@@ -283,7 +283,7 @@ def _push_analyze_event(task_id: str, event_type: str, data: dict):
         try:
             q.put({"event": event_type, "data": data})
         except Exception:
-            pass  # Queue might be full or closed — silently ignore
+            logger.debug("Failed to push SSE event '%s' to analyze queue", event_type, exc_info=True)
 
 
 def _run_analyze_all(
@@ -555,7 +555,7 @@ def _run_analyze_all(
                         try:
                             repo.clear_burst_group(skip_id)
                         except Exception:
-                            pass  # photo may not have a burst_group
+                            logger.debug("Failed to clear burst group for photo: %s", skip_id, exc_info=True)
             # Collect burst IDs from remaining photos (not closed-eye, not blurry)
             burst_ids = {
                 p.image_id for p in repo.get_all_photos()
@@ -611,6 +611,7 @@ def _run_analyze_all(
             "clean_count": summary.clean_count,
         })
     except Exception:
+        logger.warning("Failed to fetch AI summary; task completed without stats", exc_info=True)
         _push("task_complete", {"total_analyzed": total_photos})
 
 

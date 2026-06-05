@@ -53,7 +53,7 @@ async def get_photo_detail(image_id: str):
         if os.path.isfile(thumb_file):
             thumbnail_path = thumb_file
     except Exception:
-        pass
+        logger.debug("Failed to resolve thumbnail path for image '%s'", image_id, exc_info=True)
 
     # Build burst_total for the frontend display
     burst_total = None
@@ -308,7 +308,7 @@ async def get_fullsize_image(image_id: str, width: int | None = None):
                     from PIL import ImageOps
                     img = ImageOps.exif_transpose(img)
                 except Exception:
-                    pass
+                    logger.debug("EXIF auto-orient failed, using image as-is", exc_info=True)
 
                 if img.mode in ("RGBA", "P", "LA"):
                     img = img.convert("RGB")

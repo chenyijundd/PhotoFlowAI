@@ -8,7 +8,10 @@ Connections are pooled per-thread to avoid repeated connect/close overhead.
 import os
 import sqlite3
 import threading
+import logging
 from typing import Optional, Dict
+
+logger = logging.getLogger(__name__)
 
 PHOTOS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS photos (
@@ -100,7 +103,7 @@ class ConnectionPool:
             try:
                 conn.close()
             except Exception:
-                pass
+                logger.debug("Error closing thread connection", exc_info=True)
             self._thread_local.conn = None
 
     def close_all(self) -> None:

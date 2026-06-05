@@ -597,7 +597,7 @@ def _push_cull_event(task_id: str, event_type: str, data: dict):
         try:
             q.put({"event": event_type, "data": data})
         except Exception:
-            pass
+            logger.debug("Failed to push cull SSE event '%s' to queue", event_type, exc_info=True)
 
 
 class TaskStartResponse(BaseModel):

@@ -180,7 +180,7 @@ def _do_clear(manager, project_id: str, project):
                 _os.remove(thumb_path)
                 removed_thumbs += 1
             except OSError:
-                pass
+                logger.debug("Failed to remove thumbnail: %s", thumb_path, exc_info=True)
 
     manager._refresh_project_stats(project.db_path)
 
