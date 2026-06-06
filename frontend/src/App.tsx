@@ -166,26 +166,37 @@ const App: React.FC = () => {
     );
   }
 
-  // Normal browsing mode (project is open, or legacy single-db fallback)
+  // Normal browsing mode (project is open)
+  if (appPhase === "browsing") {
+    return (
+      <ErrorBoundary>
+        <PhotoSelectionProvider>
+          <UndoRedoProvider>
+          <BatchSelectionProvider>
+          <CompareModeProvider>
+          <BurstCompareProvider>
+          <LightboxModeProvider>
+            <BrowserPage
+              projectName={currentProject?.name ?? null}
+              onProjectClosed={currentProject ? handleProjectClosed : undefined}
+            />
+          </LightboxModeProvider>
+          </BurstCompareProvider>
+        </CompareModeProvider>
+          </BatchSelectionProvider>
+          </UndoRedoProvider>
+        </PhotoSelectionProvider>
+      </ErrorBoundary>
+    );
+  }
+
+  // Intermediate state (e.g. backend connected but license/project check in flight)
   return (
-    <ErrorBoundary>
-      <PhotoSelectionProvider>
-        <UndoRedoProvider>
-        <BatchSelectionProvider>
-        <CompareModeProvider>
-        <BurstCompareProvider>
-        <LightboxModeProvider>
-          <BrowserPage
-            projectName={currentProject?.name ?? null}
-            onProjectClosed={currentProject ? handleProjectClosed : undefined}
-          />
-        </LightboxModeProvider>
-        </BurstCompareProvider>
-      </CompareModeProvider>
-        </BatchSelectionProvider>
-        </UndoRedoProvider>
-      </PhotoSelectionProvider>
-    </ErrorBoundary>
+    <div className="state-screen loading-state">
+      <div className="spinner" />
+      <h2>PhotoFlow AI</h2>
+      <p>正在准备...</p>
+    </div>
   );
 };
 
