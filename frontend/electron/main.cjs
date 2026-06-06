@@ -8,6 +8,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
+const { setupAutoUpdater, manualCheck } = require("./updater.cjs");
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -16,11 +17,37 @@ const isDev = process.env.NODE_ENV === "development";
 const PYTHON_PORT = 8765;
 
 function startPythonBackend() {
-  const projectRoot = path.join(__dirname, "..", "..");
-  pythonProcess = spawn("python", ["-m", "backend.api.server", "--port", String(PYTHON_PORT)], {
-    cwd: projectRoot,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  /** Absolute path to the directory where the app stores persistent data. */
+  const userDataPath = app.getPath("userData");
+
+  if (isDev) {
+    // Development: run Python from the source tree
+    const projectRoot = path.join(__dirname, "..", "..");
+    pythonProcess = spawn(
+      "python",
+      ["-m", "backend.api.server", "--port", String(PYTHON_PORT)],
+      {
+        cwd: projectRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+  } else {
+    // Production: use the PyInstaller-frozen executable
+    const backendExe = path.join(
+      process.resourcesPath,
+      "backend",
+      "photoflow-backend.exe",
+    );
+    console.log(`[Backend] Starting: ${backendExe}`);
+    pythonProcess = spawn(
+      backendExe,
+      ["--port", String(PYTHON_PORT), "--data-dir", userDataPath],
+      {
+        env: { ...process.env },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+  }
 
   pythonProcess.stdout?.on("data", (data) => {
     console.log(`[Python] ${data.toString().trim()}`);
@@ -626,6 +653,33 @@ ipcMain.handle("get-trashed-count", async () => {
   return response.json();
 });
 
+// ---- License Activation ----
+
+ipcMain.handle("get-license-status", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/license/status`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+  return response.json();
+});
+
+ipcMain.handle("activate-license", async (_event, userName, licenseKey) => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/license/activate`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_name: userName, license_key: licenseKey }),
+  });
+  // Always return the parsed body — frontend checks `success` field
+  // so activation failures don't get the Electron IPC error prefix.
+  return response.json();
+});
+
+// ---- Auto-Updater ----
+
+ipcMain.handle("check-for-updates", async () => {
+  manualCheck(mainWindow);
+});
+
 // ---- Sensitivity Presets ----
 
 ipcMain.handle("get-presets", async () => {
@@ -694,6 +748,11 @@ function buildAppMenu() {
     {
       label: "帮助",
       submenu: [
+        {
+          label: "检查更新",
+          click: () => manualCheck(mainWindow),
+        },
+        { type: "separator" },
         { label: "关于 PhotoFlow AI", click: () => {
           dialog.showMessageBox(mainWindow, {
             type: "info",
@@ -716,6 +775,9 @@ app.whenReady().then(() => {
   buildAppMenu();
   startPythonBackend();
   createWindow();
+
+  // Initialise auto-updater (no-op in development mode)
+  setupAutoUpdater(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

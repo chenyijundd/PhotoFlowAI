@@ -68,4 +68,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Sensitivity presets
   getPresets: () => ipcRenderer.invoke("get-presets"),
   setActivePreset: (presetId) => ipcRenderer.invoke("set-active-preset", presetId),
+  // License activation
+  getLicenseStatus: () => ipcRenderer.invoke("get-license-status"),
+  activateLicense: (userName, licenseKey) => ipcRenderer.invoke("activate-license", userName, licenseKey),
+  // Auto-updater
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
 });

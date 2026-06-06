@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-window": "^1.8.10"
@@ -34,12 +35,31 @@
   "build": {
     "appId": "com.photoflow.ai",
     "productName": "PhotoFlow AI",
+    "publish": {
+      "provider": "github",
+      "owner": "chenyijundd",
+      "repo": "PhotoFlowAI"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../dist/photoflow-backend",
+        "to": "backend"
+      }
+    ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

@@ -12,6 +12,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/release/
 
+# PyInstaller / Build
+build/
+dist/
+
 # Database
 database/*.db
 database/*.db-shm
@@ -41,3 +45,4 @@ Thumbs.db
 # Environment
 .env
 .env.local
+backend/env.py

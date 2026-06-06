@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import BrowserPage from "./pages/BrowserPage";
 import ProjectPicker from "./components/ProjectPicker";
+import ActivationDialog from "./components/ActivationDialog";
 import { PhotoSelectionProvider } from "./context/PhotoSelectionContext";
 import { CompareModeProvider } from "./context/CompareModeContext";
 import { BurstCompareProvider } from "./context/BurstCompareContext";
@@ -21,15 +22,19 @@ import { BatchSelectionProvider } from "./context/BatchSelectionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type { ProjectInfo } from "./api/projectApi";
 import { fetchCurrentProject, closeProject } from "./api/projectApi";
+import { fetchLicenseStatus } from "./api/licenseApi";
 
 type BackendStatus = "connecting" | "connected" | "error";
-type AppPhase = "connecting" | "picking_project" | "browsing";
+type AppPhase = "connecting" | "activating" | "picking_project" | "browsing";
 
 const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting");
   const [appPhase, setAppPhase] = useState<AppPhase>("connecting");
   const [currentProject, setCurrentProject] = useState<ProjectInfo | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [licenseChecked, setLicenseChecked] = useState(false);
+  const [licenseValid, setLicenseValid] = useState(false);
+  const [licenseUserName, setLicenseUserName] = useState<string | null>(null);
 
   // ── Backend health check ──────────────────────────────────────────
   useEffect(() => {
@@ -59,9 +64,38 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // ── Once backend is connected, check if a project is already open ──
+  // ── Once backend is connected, check license status first ──
   useEffect(() => {
-    if (backendStatus !== "connected") return;
+    if (backendStatus !== "connected" || licenseChecked) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await fetchLicenseStatus();
+        if (!cancelled) {
+          setLicenseChecked(true);
+          if (status.activated) {
+            setLicenseValid(true);
+            setLicenseUserName(status.user_name);
+          } else {
+            setAppPhase("activating");
+          }
+        }
+      } catch {
+        // If the license check fails, treat as not activated
+        if (!cancelled) {
+          setLicenseChecked(true);
+          setAppPhase("activating");
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [backendStatus, licenseChecked]);
+
+  // ── Once license is confirmed valid, check if a project is already open ──
+  useEffect(() => {
+    if (backendStatus !== "connected" || !licenseValid) return;
 
     let cancelled = false;
     (async () => {
@@ -84,13 +118,20 @@ const App: React.FC = () => {
     })();
 
     return () => { cancelled = true; };
-  }, [backendStatus]);
+  }, [backendStatus, licenseValid]);
 
   // ── Callbacks ─────────────────────────────────────────────────────
 
   const handleProjectOpened = useCallback((project: ProjectInfo) => {
     setCurrentProject(project);
     setAppPhase("browsing");
+  }, []);
+
+  const handleActivated = useCallback((userName: string) => {
+    setLicenseValid(true);
+    setLicenseUserName(userName);
+    // The next useEffect will pick up licenseValid=true
+    // and transition to picking_project or browsing
   }, []);
 
   const handleProjectClosed = useCallback(async () => {
@@ -120,6 +161,15 @@ const App: React.FC = () => {
             : "后端连接失败"}
         </p>
       </div>
+    );
+  }
+
+  // License activation required
+  if (appPhase === "activating") {
+    return (
+      <ErrorBoundary>
+        <ActivationDialog onActivated={handleActivated} />
+      </ErrorBoundary>
     );
   }
 

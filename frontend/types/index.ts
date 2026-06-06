@@ -425,6 +425,30 @@ export interface CullStreamCallbacks {
   onTaskError: (error: string) => void;
 }
 
+// ── License Activation ──────────────────────────────────────────────────
+
+/** Response from GET /api/license/status. */
+export interface LicenseStatusResponse {
+  activated: boolean;
+  user_name: string | null;
+  expiry: string | null;
+  activated_at: string | null;
+}
+
+/** Request body for POST /api/license/activate. */
+export interface ActivateRequest {
+  user_name: string;
+  license_key: string;
+}
+
+/** Response from POST /api/license/activate. */
+export interface ActivateResponse {
+  success: boolean;
+  message: string;
+  user_name: string | null;
+  expiry: string | null;
+}
+
 /** API exposed to the renderer via preload contextBridge. */
 export interface ElectronAPI {
   getPhotos: (limit?: number, offset?: number) => Promise<GetPhotosResponse>;
@@ -489,6 +513,11 @@ export interface ElectronAPI {
   // Sensitivity presets
   getPresets: () => Promise<PresetListResponse>;
   setActivePreset: (presetId: string) => Promise<SetPresetResponse>;
+  // License activation
+  getLicenseStatus: () => Promise<LicenseStatusResponse>;
+  activateLicense: (userName: string, licenseKey: string) => Promise<ActivateResponse>;
+  // Auto-updater
+  checkForUpdates: () => Promise<void>;
 }
 
 /** Augment the global Window interface. */
