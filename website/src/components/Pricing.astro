@@ -1,0 +1,294 @@
+---
+// Pricing.astro — 定价方案
+---
+
+<section id="pricing" class="section" style="background: var(--color-surface);">
+  <div class="section-inner">
+    <h2 class="section-title">简单透明的定价</h2>
+    <p class="section-subtitle">选择适合您的方案，满意再购买</p>
+
+    <div class="pricing-grid">
+      <!-- 免费试用 -->
+      <div class="pricing-card">
+        <div class="pricing-header">
+          <h3>🆓 免费试用</h3>
+          <div class="pricing-price">¥0</div>
+          <p class="pricing-period">30 天全功能</p>
+        </div>
+        <ul class="pricing-features">
+          <li>✅ 全部 AI 检测功能开放</li>
+          <li>✅ 无张数限制</li>
+          <li>✅ RAW 预览</li>
+          <li>✅ 多项目管理</li>
+          <li>✅ 导出功能</li>
+        </ul>
+        <a href="https://github.com/chenyijundd/PhotoFlowAI/releases/latest" class="btn btn-outline btn-block">
+          ⬇ 免费下载
+        </a>
+      </div>
+
+      <!-- 半年 -->
+      <div class="pricing-card">
+        <div class="pricing-header">
+          <h3>📅 半年</h3>
+          <div class="pricing-price">¥149</div>
+          <p class="pricing-period">6 个月</p>
+        </div>
+        <ul class="pricing-features">
+          <li>✅ 免费试用版全部功能</li>
+          <li>✅ 6 个月内免费更新</li>
+          <li>✅ 绑定姓名，换机可重装</li>
+        </ul>
+        <button class="btn btn-primary btn-block btn-qr-trigger" data-plan="半年 ¥149">
+          🛒 立即购买
+        </button>
+      </div>
+
+      <!-- 一年 -->
+      <div class="pricing-card pricing-card-featured">
+        <div class="pricing-badge">推荐</div>
+        <div class="pricing-header">
+          <h3>📆 一年</h3>
+          <div class="pricing-price">¥249</div>
+          <p class="pricing-period">12 个月</p>
+        </div>
+        <ul class="pricing-features">
+          <li>✅ 免费试用版全部功能</li>
+          <li>✅ 12 个月内免费更新</li>
+          <li>✅ 绑定姓名，换机可重装</li>
+          <li>✅ 邮件技术支持</li>
+        </ul>
+        <button class="btn btn-primary btn-block btn-qr-trigger" data-plan="一年 ¥249">
+          🛒 立即购买
+        </button>
+      </div>
+
+      <!-- 永久买断 -->
+      <div class="pricing-card">
+        <div class="pricing-header">
+          <h3>💎 永久买断</h3>
+          <div class="pricing-price">¥299</div>
+          <p class="pricing-period">终身使用</p>
+        </div>
+        <ul class="pricing-features">
+          <li>✅ 免费试用版全部功能</li>
+          <li>✅ 永久使用，无时间限制</li>
+          <li>✅ 大版本内免费更新</li>
+          <li>✅ 绑定姓名，换机可重装</li>
+          <li>✅ 邮件技术支持</li>
+        </ul>
+        <button class="btn btn-primary btn-block btn-qr-trigger" data-plan="永久买断 ¥299">
+          🛒 立即购买
+        </button>
+      </div>
+    </div>
+
+    <p class="pricing-note">💡 购买后自动发码到您的邮箱，在软件中输入即可激活。一个激活码绑定一台电脑。</p>
+  </div>
+
+  <!-- 微信二维码弹窗 -->
+  <div id="qr-modal" class="qr-modal-overlay" style="display: none;">
+    <div class="qr-modal">
+      <button class="qr-modal-close" id="qr-modal-close">&times;</button>
+      <h3>扫码添加客服微信</h3>
+      <p class="qr-modal-plan" id="qr-modal-plan"></p>
+      <img
+        src="/WeChat_cyj.jpg"
+        alt="客服微信二维码"
+        class="qr-modal-img"
+        width="260"
+        height="260"
+      />
+      <p class="qr-modal-hint">支付渠道暂未开通，请扫码添加客服微信人工充值获取激活码</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  // QR code modal logic — runs once on the client
+  const modal = document.getElementById("qr-modal")!;
+  const modalClose = document.getElementById("qr-modal-close")!;
+  const modalPlan = document.getElementById("qr-modal-plan")!;
+  const triggers = document.querySelectorAll(".btn-qr-trigger");
+
+  triggers.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const plan = btn.getAttribute("data-plan") || "";
+      modalPlan.textContent = `方案：${plan}`;
+      modal.style.display = "flex";
+    });
+  });
+
+  modalClose.addEventListener("click", () => {
+    modal.style.display = "none";
+  });
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      modal.style.display = "none";
+    }
+  });
+</script>
+
+<style>
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .pricing-card {
+    background: var(--color-bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    position: relative;
+  }
+
+  .pricing-card-featured {
+    background: #f0fdf4;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.08);
+  }
+
+  .pricing-badge {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-primary);
+    color: #fff;
+    padding: 4px 18px;
+    border-radius: 100px;
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .pricing-header {
+    text-align: center;
+  }
+
+  .pricing-header h3 {
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+  }
+
+  .pricing-price {
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--color-primary);
+  }
+
+  .pricing-period {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+  }
+
+  .pricing-features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+
+  .pricing-features li {
+    font-size: 0.85rem;
+    color: var(--color-text);
+  }
+
+  .btn-block {
+    width: 100%;
+    text-align: center;
+  }
+
+  .pricing-note {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-top: 32px;
+  }
+
+  /* ---- QR Code Modal ---- */
+
+  .qr-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+
+  .qr-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 36px 32px 28px;
+    text-align: center;
+    max-width: 380px;
+    width: 90%;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  }
+
+  .qr-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .qr-modal-close:hover {
+    color: #333;
+  }
+
+  .qr-modal h3 {
+    font-size: 1.2rem;
+    margin-bottom: 4px;
+    color: #1a1a1a;
+  }
+
+  .qr-modal-plan {
+    font-size: 0.9rem;
+    color: var(--color-primary);
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .qr-modal-img {
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+  }
+
+  .qr-modal-hint {
+    margin-top: 14px;
+    font-size: 0.85rem;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 900px) {
+    .pricing-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 540px) {
+    .pricing-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
