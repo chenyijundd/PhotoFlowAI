@@ -5,7 +5,7 @@
  * and bridges IPC between renderer and backend API.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const { setupAutoUpdater, manualCheck } = require("./updater.cjs");
@@ -809,6 +809,10 @@ function buildAppMenu() {
               "  · 左侧可切换筛选：全部 / 已标星 / 待处理 / 已淘汰",
             ].join("\n"),
           });
+        }},
+        { type: "separator" },
+        { label: "官网链接", click: () => {
+          shell.openExternal("https://photoflow.aidocsaas.com");
         }},
       ],
     },
