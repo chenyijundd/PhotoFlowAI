@@ -516,6 +516,7 @@ export interface ElectronAPI {
   // License activation
   getLicenseStatus: () => Promise<LicenseStatusResponse>;
   activateLicense: (userName: string, licenseKey: string) => Promise<ActivateResponse>;
+  startTrial: () => Promise<ActivateResponse>;
   // Auto-updater
   checkForUpdates: () => Promise<void>;
 }

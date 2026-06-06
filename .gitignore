@@ -11,6 +11,9 @@ env/
 frontend/node_modules/
 frontend/dist/
 frontend/release/
+website/node_modules/
+website/dist/
+workers/payment-webhook/node_modules/
 
 # PyInstaller / Build
 build/

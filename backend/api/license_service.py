@@ -35,8 +35,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.env import get_data_dir, SECRET_KEY
+from database.repository import PhotoRepository
 
 logger = logging.getLogger(__name__)
+
+# Config keys stored in the database as an anti-tamper cross-check.
+# Even if the user deletes license.json, the trial record survives in SQLite.
+CONFIG_KEY_TRIAL_USED = "trial_used"
+CONFIG_KEY_TRIAL_DATE = "trial_date"
 
 # ── Constants ───────────────────────────────────────────────────────────────
 LICENSE_FILENAME = "license.json"
@@ -226,6 +232,60 @@ async def license_status():
         user_name=user_name,
         expiry=expiry,
         activated_at=activated_at,
+    )
+
+
+@router.post("/start-trial", response_model=ActivateResponse)
+async def start_trial():
+    """Start a 30-day free trial for first-time users.
+
+    Two-layer protection against repeated trials:
+    1. Check license.json  — fast path, catches casual retries
+    2. Check database       — harder to find/delete than a JSON file
+
+    Both layers must be clear before a trial is granted.  On success the
+    record is written to **both** locations so that deleting one does not
+    reset the trial.
+    """
+    # Layer 1: license file
+    existing_file = _read_license_file()
+    if existing_file is not None:
+        user_name = existing_file.get("user_name", "未知用户")
+        expiry = existing_file.get("expiry", "未知")
+        raise HTTPException(
+            status_code=409,
+            detail=f"该设备已使用过免费试用（用户：{user_name}，到期：{expiry}），请购买激活码继续使用",
+        )
+
+    # Layer 2: database cross-check (survives license.json deletion)
+    repo = PhotoRepository()
+    if repo.get_config(CONFIG_KEY_TRIAL_USED) == "true":
+        trial_date = repo.get_config(CONFIG_KEY_TRIAL_DATE) or "未知"
+        raise HTTPException(
+            status_code=409,
+            detail=f"该设备已使用过免费试用（日期：{trial_date}），请购买激活码继续使用",
+        )
+
+    # Both layers clear — grant trial
+    trial_name = "试用用户"
+    trial_expiry = (date.today() + timedelta(days=30)).isoformat()
+    trial_key = _generate_license(trial_name, trial_expiry)
+
+    # Write to license.json
+    _write_license_file(trial_name, trial_key, trial_expiry)
+
+    # Write to database (anti-tamper cross-check)
+    today_str = date.today().isoformat()
+    repo.set_config(CONFIG_KEY_TRIAL_USED, "true")
+    repo.set_config(CONFIG_KEY_TRIAL_DATE, today_str)
+
+    logger.info("Trial started (expiry: %s, db cross-check written)", trial_expiry)
+
+    return ActivateResponse(
+        success=True,
+        message=f"试用已开启！30 天全功能免费试用（到期 {trial_expiry}）",
+        user_name=trial_name,
+        expiry=trial_expiry,
     )
 
 

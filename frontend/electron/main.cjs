@@ -674,6 +674,13 @@ ipcMain.handle("activate-license", async (_event, userName, licenseKey) => {
   return response.json();
 });
 
+ipcMain.handle("start-trial", async () => {
+  const url = `http://127.0.0.1:${PYTHON_PORT}/api/license/start-trial`;
+  const response = await fetch(url, { method: "POST" });
+  // Always return the parsed body — frontend checks `success` field
+  return response.json();
+});
+
 // ---- Auto-Updater ----
 
 ipcMain.handle("check-for-updates", async () => {
@@ -753,12 +760,54 @@ function buildAppMenu() {
           click: () => manualCheck(mainWindow),
         },
         { type: "separator" },
-        { label: "关于 PhotoFlow AI", click: () => {
+        { label: "使用手册", click: () => {
           dialog.showMessageBox(mainWindow, {
             type: "info",
-            title: "关于 PhotoFlow AI",
-            message: "PhotoFlow AI",
-            detail: "智能摄影辅助工具\n为婚纱摄影师打造",
+            title: "PhotoFlow AI — 使用手册",
+            message: "快捷键 & 操作指南",
+            detail: [
+              "━━━━━━━━ 📷 浏览模式（主界面）━━━━━━━━",
+              "  ← → / ↑ ↓    切换照片（自动跳过已淘汰）",
+              "  Space         打星 / 取消星标 ★ — 自动前进",
+              "  D             淘汰 / 恢复 — 自动前进",
+              "  Enter         全屏灯箱预览",
+              "  C             进入对比模式（连拍 / 重复组）",
+              "  B             连拍网格对比",
+              "  E             导出照片",
+              "  Home          跳到第一张",
+              "  End           跳到最后一张",
+              "  Ctrl+A        全选当前视图",
+              "  Ctrl+Z        撤销操作",
+              "  Ctrl+Y        重做操作",
+              "  Ctrl+Delete   删除选中照片到回收站",
+              "  Ctrl+Shift+Delete  从回收站恢复",
+              "  Esc           取消选择 / 关闭弹窗",
+              "",
+              "━━━━━━━━ 🔍 灯箱模式（全屏预览）━━━━━━━━",
+              "  Z             切换「适应窗口」/「100% 原图」",
+              "  滚轮          100% 模式下缩放图片",
+              "  拖拽          100% 模式下平移图片",
+              "  ← →          上一张 / 下一张",
+              "  Space / D    打星 / 淘汰（同上）",
+              "  Esc           退出灯箱",
+              "",
+              "━━━━━━━━ 🔄 对比模式（A / B 双图）━━━━━━━━",
+              "  Tab           切换左 / 右面板",
+              "  ← →          在重复组内切照片",
+              "  Space / D    打星 / 淘汰当前活动照片",
+              "  Esc           退出对比",
+              "",
+              "━━━━━━━━ 🎞 连拍网格对比 ━━━━━━━━",
+              "  鼠标悬停       预览某张照片",
+              "  Space / D    对悬停照片打星 / 淘汰",
+              "  B / Esc      返回浏览模式",
+              "",
+              "━━━━━━━━ 💡 提示 ━━━━━━━━",
+              "  · 已淘汰的照片不会出现在导出结果中",
+              "  · 「一键精选」可自动处理全部照片",
+              "  · 所有操作均可 Ctrl+Z 撤销",
+              "  · 左侧可切换筛选：全部 / 已标星 / 待处理 / 已淘汰",
+            ].join("\n"),
           });
         }},
       ],

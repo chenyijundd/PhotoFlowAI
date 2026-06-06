@@ -19,6 +19,19 @@ export async function fetchLicenseStatus(): Promise<LicenseStatusResponse> {
   return res.json();
 }
 
+/** Start a 30-day free trial.
+ *
+ * Only works when the device has no valid license yet. */
+export async function startTrial(): Promise<ActivateResponse> {
+  if (window.electronAPI) {
+    return window.electronAPI.startTrial();
+  }
+  const res = await fetch(`${BACKEND_URL}/api/license/start-trial`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
 /** Activate the software with a license key and user name.
  *
  * Always returns the parsed response body — the `success` field tells

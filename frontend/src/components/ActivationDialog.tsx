@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { fetchLicenseStatus, activateLicense } from "../api/licenseApi";
+import { fetchLicenseStatus, activateLicense, startTrial } from "../api/licenseApi";
 
 interface ActivationDialogProps {
   onActivated: (userName: string) => void;
@@ -17,6 +17,7 @@ const ActivationDialog: React.FC<ActivationDialogProps> = ({ onActivated }) => {
   const [userName, setUserName] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
   const [activating, setActivating] = useState(false);
+  const [startingTrial, setStartingTrial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -67,6 +68,29 @@ const ActivationDialog: React.FC<ActivationDialogProps> = ({ onActivated }) => {
       setError(msg);
     } finally {
       setActivating(false);
+    }
+  };
+
+  const handleStartTrial = async () => {
+    setError(null);
+    setStartingTrial(true);
+
+    try {
+      const result = await startTrial();
+      if (result.success) {
+        setSuccess(true);
+        setTimeout(() => {
+          onActivated(result.user_name || "试用用户");
+        }, 1500);
+      } else {
+        setError(result.message || "试用开启失败，请重试");
+      }
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "试用开启失败，请检查网络连接后重试";
+      setError(msg);
+    } finally {
+      setStartingTrial(false);
     }
   };
 
@@ -144,7 +168,14 @@ const ActivationDialog: React.FC<ActivationDialogProps> = ({ onActivated }) => {
         </div>
 
         <div className="activation-footer">
-          <p>
+          <button
+            className="btn-secondary btn-trial"
+            onClick={handleStartTrial}
+            disabled={activating || startingTrial}
+          >
+            {startingTrial ? "正在开启试用..." : "🎁 免费试用 30 天"}
+          </button>
+          <p style={{ marginTop: 12 }}>
             还没有激活码？
             {" "}
             <span className="activation-footer-link">

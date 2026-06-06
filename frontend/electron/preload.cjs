@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // License activation
   getLicenseStatus: () => ipcRenderer.invoke("get-license-status"),
   activateLicense: (userName, licenseKey) => ipcRenderer.invoke("activate-license", userName, licenseKey),
+  startTrial: () => ipcRenderer.invoke("start-trial"),
   // Auto-updater
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
 });
