@@ -23,11 +23,9 @@ from database.repository import PhotoRepository
 logger = logging.getLogger(__name__)
 
 # Default cache directory (matches thumbnail_cache default)
-DEFAULT_CACHE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "cache",
-    "thumbnails",
-)
+from backend.env import get_data_dir
+
+DEFAULT_CACHE_DIR = os.path.join(get_data_dir(), "cache", "thumbnails")
 
 router = APIRouter(prefix="/api", tags=["photos"])
 

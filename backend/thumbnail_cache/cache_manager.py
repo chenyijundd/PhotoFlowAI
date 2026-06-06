@@ -19,11 +19,9 @@ from .utils import generate_single_thumbnail, ensure_cache_dir, thumbnail_exists
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CACHE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "cache",
-    "thumbnails",
-)
+from backend.env import get_data_dir
+
+DEFAULT_CACHE_DIR = os.path.join(get_data_dir(), "cache", "thumbnails")
 
 
 class CacheManager:

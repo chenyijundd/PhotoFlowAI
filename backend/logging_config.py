@@ -13,11 +13,11 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Log directory (relative to this file: backend/ → project root/)
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "logs",
-)
+# Log directory — resolved via the centralised env module so that
+# production builds write logs to the user's data directory.
+from backend.env import get_data_dir
+
+LOG_DIR = os.path.join(get_data_dir(), "logs")
 
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 BACKUP_COUNT = 5

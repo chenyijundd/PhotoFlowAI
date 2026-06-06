@@ -161,6 +161,8 @@ def _do_clear(manager, project_id: str, project):
         return None
 
     from database.repository import PhotoRepository
+    from backend.env import get_data_dir
+
     repo = PhotoRepository(db_path=project.db_path)
     all_photos = repo.get_all_photos()
     image_ids = [p.image_id for p in all_photos]
@@ -169,10 +171,7 @@ def _do_clear(manager, project_id: str, project):
     logger.info("Cleared %d photos from project '%s'", deleted, project.name)
 
     removed_thumbs = 0
-    _cache_dir = _os.path.join(
-        _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))),
-        "cache", "thumbnails",
-    )
+    _cache_dir = _os.path.join(get_data_dir(), "cache", "thumbnails")
     for image_id in image_ids:
         thumb_path = _os.path.join(_cache_dir, f"{image_id}.jpg")
         if _os.path.isfile(thumb_path):

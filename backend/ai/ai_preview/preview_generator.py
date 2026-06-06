@@ -35,10 +35,9 @@ PREVIEW_MAX_SIZE: int = 800
 PREVIEW_JPEG_QUALITY: int = 85
 """JPEG quality for saved previews (0–100)."""
 
-_PROJECT_ROOT = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
-)
-PREVIEW_DIR: str = os.path.join(_PROJECT_ROOT, "cache", "ai_previews")
+from backend.env import get_data_dir
+
+PREVIEW_DIR: str = os.path.join(get_data_dir(), "cache", "ai_previews")
 
 
 # ---------------------------------------------------------------------------

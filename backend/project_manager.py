@@ -47,8 +47,10 @@ logger = logging.getLogger(__name__)
 
 def _get_meta_db_path() -> str:
     """Path to the meta-database that tracks all projects."""
-    db_dir = os.path.dirname(os.path.abspath(__file__))
-    db_dir = os.path.join(os.path.dirname(db_dir), "database")
+    from backend.env import get_data_dir
+
+    db_dir = os.path.join(get_data_dir(), "database")
+    os.makedirs(db_dir, exist_ok=True)
     return os.path.join(db_dir, "projects.db")
 
 

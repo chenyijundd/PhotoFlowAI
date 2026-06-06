@@ -34,8 +34,9 @@ except ImportError:
     )
 
 # ---- Cache directories ----
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-_THUMBNAIL_CACHE_DIR = os.path.join(_PROJECT_ROOT, "cache", "thumbnails")
+from backend.env import get_data_dir
+
+_THUMBNAIL_CACHE_DIR = os.path.join(get_data_dir(), "cache", "thumbnails")
 
 
 # ---------------------------------------------------------------------------

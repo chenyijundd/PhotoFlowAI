@@ -143,8 +143,16 @@ def close_all_pools() -> None:
 # ---------------------------------------------------------------------------
 
 def get_default_db_path() -> str:
-    """Compute the default database file path relative to this module."""
-    db_dir = os.path.dirname(os.path.abspath(__file__))
+    """Compute the default database file path.
+
+    In production the database is stored under the user's data directory
+    so it survives application updates.  In development it lives alongside
+    the project source.
+    """
+    from backend.env import get_data_dir
+
+    db_dir = os.path.join(get_data_dir(), "database")
+    os.makedirs(db_dir, exist_ok=True)
     return os.path.join(db_dir, "photoflow.db")
 
 

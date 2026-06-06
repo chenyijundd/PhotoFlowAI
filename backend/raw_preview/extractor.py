@@ -46,11 +46,9 @@ RAW_EXTENSIONS: frozenset = frozenset({
 })
 
 # Default cache directory for extracted previews
-DEFAULT_PREVIEW_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "cache",
-    "raw_previews",
-)
+from backend.env import get_data_dir
+
+DEFAULT_PREVIEW_DIR = os.path.join(get_data_dir(), "cache", "raw_previews")
 
 
 # ---------------------------------------------------------------------------

@@ -46,3 +46,6 @@ Thumbs.db
 .env
 .env.local
 backend/env.py
+
+# License (generated at runtime / during testing)
+license.json

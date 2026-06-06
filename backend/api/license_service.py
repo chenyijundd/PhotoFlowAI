@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ───────────────────────────────────────────────────────────────
 LICENSE_FILENAME = "license.json"
+_EXPIRY_SCAN_YEARS_AHEAD = 5    # Try dates up to N years in the future
+_EXPIRY_SCAN_DAYS_BACK = 365    # Try dates up to N days in the past
 
 router = APIRouter(prefix="/api/license", tags=["license"])
 
@@ -89,6 +91,59 @@ def _verify_license(license_key: str, user_name: str, expiry: str = "permanent")
     return license_key.upper().strip() == expected
 
 
+def _generate_expiry_candidates() -> list[str]:
+    """Build a list of candidate expiry strings to try during activation.
+
+    Since activation must work without the user knowing which expiry was
+    encoded in their key, we try a range of plausible values.  SHA256 is
+    fast enough that ~2200 attempts is imperceptible (< 1 ms).
+
+    Order: "permanent" first (most common), then future dates nearest-first,
+    then past dates (for keys generated some time ago).
+    """
+    candidates = ["permanent"]
+    today = date.today()
+
+    # Future dates: today → today + N years (nearest first)
+    for offset in range(_EXPIRY_SCAN_YEARS_AHEAD * 365 + 1):
+        d = today + timedelta(days=offset)
+        candidates.append(d.isoformat())  # "2026-06-06"
+
+    # Past dates: yesterday → today - N days (for older keys)
+    for offset in range(1, _EXPIRY_SCAN_DAYS_BACK + 1):
+        d = today - timedelta(days=offset)
+        candidates.append(d.isoformat())
+
+    return candidates
+
+
+def _find_matching_expiry(license_key: str, user_name: str) -> str | None:
+    """Try every candidate expiry string; return the first that matches.
+
+    Returns None when no candidate produces a matching license key.
+    """
+    key = license_key.upper().strip()
+    for expiry in _generate_expiry_candidates():
+        if _verify_license(key, user_name, expiry):
+            return expiry
+    return None
+
+
+def _is_expired(expiry: str) -> bool:
+    """Return True if the expiry date has passed.
+
+    "permanent" never expires.  Date strings must be ISO format (YYYY-MM-DD).
+    """
+    if expiry == "permanent":
+        return False
+    try:
+        expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+        return expiry_date < date.today()
+    except ValueError:
+        logger.warning("Unrecognised expiry format: %r", expiry)
+        return True  # treat unparseable expiry as expired
+
+
 def _read_license_file() -> dict | None:
     """Read and return the stored license data, or None."""
     path = _license_path()
@@ -122,7 +177,7 @@ def is_license_valid() -> tuple[bool, str | None, str | None]:
 
     Returns (valid, user_name, expiry).  Re-verifies the stored key
     against the SECRET_KEY so that tampering with the license file is
-    detected.
+    detected, and checks whether a time-limited license has expired.
     """
     data = _read_license_file()
     if data is None:
@@ -139,6 +194,10 @@ def is_license_valid() -> tuple[bool, str | None, str | None]:
     if not _verify_license(license_key, user_name, expiry):
         logger.warning("Stored license failed verification (tampered?)")
         return False, None, None
+
+    if _is_expired(expiry):
+        logger.info("License for '%s' expired (%s)", user_name, expiry)
+        return False, user_name, expiry
 
     return True, user_name, expiry
 
@@ -187,20 +246,22 @@ async def activate_license(body: ActivateRequest):
     if len(license_key) != 16:
         raise HTTPException(status_code=422, detail="激活码格式不正确（应为16位字符）")
 
-    # Verify against the permanent expiry — the simplest model.
-    # To support time-limited licenses, we would try multiple expiry values.
-    if not _verify_license(license_key, user_name):
+    # Try every plausible expiry value ("permanent", future dates, past dates).
+    # SHA256 is fast enough that ~2200 attempts is imperceptible.
+    matched_expiry = _find_matching_expiry(license_key, user_name)
+    if matched_expiry is None:
         logger.info("Activation failed for user '%s' (key mismatch)", user_name)
         raise HTTPException(
             status_code=403,
             detail="激活失败：用户名与激活码不匹配，请检查后重试",
         )
 
-    _write_license_file(user_name, license_key, "permanent")
+    _write_license_file(user_name, license_key, matched_expiry)
 
+    expiry_label = "永久有效" if matched_expiry == "permanent" else f"到期 {matched_expiry}"
     return ActivateResponse(
         success=True,
-        message="激活成功！感谢使用 PhotoFlow AI",
+        message=f"激活成功！感谢使用 PhotoFlow AI（{expiry_label}）",
         user_name=user_name,
-        expiry="permanent",
+        expiry=matched_expiry,
     )
