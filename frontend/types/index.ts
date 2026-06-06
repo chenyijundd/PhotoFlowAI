@@ -519,6 +519,8 @@ export interface ElectronAPI {
   startTrial: () => Promise<ActivateResponse>;
   // Auto-updater
   checkForUpdates: () => Promise<void>;
+  // External links
+  openExternal: (url: string) => Promise<void>;
 }
 
 /** Augment the global Window interface. */

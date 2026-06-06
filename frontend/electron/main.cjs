@@ -687,6 +687,12 @@ ipcMain.handle("check-for-updates", async () => {
   manualCheck(mainWindow);
 });
 
+// ---- External Links ----
+
+ipcMain.handle("open-external", async (_event, url) => {
+  shell.openExternal(url);
+});
+
 // ---- Sensitivity Presets ----
 
 ipcMain.handle("get-presets", async () => {

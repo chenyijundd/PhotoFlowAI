@@ -71,6 +71,15 @@ const ActivationDialog: React.FC<ActivationDialogProps> = ({ onActivated }) => {
     }
   };
 
+  const handleOpenWebsite = () => {
+    const url = "https://photoflow.aidocsaas.com";
+    if (window.electronAPI) {
+      window.electronAPI.openExternal(url);
+    } else {
+      window.open(url, "_blank");
+    }
+  };
+
   const handleStartTrial = async () => {
     setError(null);
     setStartingTrial(true);
@@ -178,7 +187,11 @@ const ActivationDialog: React.FC<ActivationDialogProps> = ({ onActivated }) => {
           <p style={{ marginTop: 12 }}>
             还没有激活码？
             {" "}
-            <span className="activation-footer-link">
+            <span
+              className="activation-footer-link"
+              onClick={handleOpenWebsite}
+              style={{ cursor: "pointer", textDecoration: "underline" }}
+            >
               请访问官网购买
             </span>
           </p>

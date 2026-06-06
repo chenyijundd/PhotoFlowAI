@@ -21,7 +21,7 @@ import { UndoRedoProvider } from "./context/UndoRedoContext";
 import { BatchSelectionProvider } from "./context/BatchSelectionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type { ProjectInfo } from "./api/projectApi";
-import { fetchCurrentProject, closeProject } from "./api/projectApi";
+import { closeProject } from "./api/projectApi";
 import { fetchLicenseStatus } from "./api/licenseApi";
 
 type BackendStatus = "connecting" | "connected" | "error";
@@ -93,31 +93,11 @@ const App: React.FC = () => {
     return () => { cancelled = true; };
   }, [backendStatus, licenseChecked]);
 
-  // ── Once license is confirmed valid, check if a project is already open ──
+  // ── Once license is confirmed valid, show the project picker ──
+  // Photos are only loaded AFTER the user selects a project.
   useEffect(() => {
     if (backendStatus !== "connected" || !licenseValid) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const project = await fetchCurrentProject();
-        if (!cancelled) {
-          if (project) {
-            setCurrentProject(project);
-            setAppPhase("browsing");
-          } else {
-            setAppPhase("picking_project");
-          }
-        }
-      } catch {
-        // API not available or error — fall back to browsing (legacy single-db mode)
-        if (!cancelled) {
-          setAppPhase("browsing");
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
+    setAppPhase("picking_project");
   }, [backendStatus, licenseValid]);
 
   // ── Callbacks ─────────────────────────────────────────────────────

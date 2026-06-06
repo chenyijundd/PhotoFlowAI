@@ -74,4 +74,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   startTrial: () => ipcRenderer.invoke("start-trial"),
   // Auto-updater
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  // External links
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });
